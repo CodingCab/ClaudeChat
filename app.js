@@ -663,6 +663,12 @@ newChatButton.addEventListener('click', () => {
     }
 });
 
+// Claude Chat logo click handler
+const chatLogo = document.querySelector('.chat-header h2');
+chatLogo.addEventListener('click', () => {
+    window.location.href = '/';
+});
+
 // Logout button
 const logoutButton = document.getElementById('logoutButton');
 logoutButton.addEventListener('click', async () => {
