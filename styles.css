@@ -48,7 +48,13 @@ body {
     color: #58a6ff;
 }
 
-.new-chat-button {
+.header-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.new-chat-button,
+.logout-button {
     background-color: #21262d;
     color: #c9d1d9;
     border: 1px solid #30363d;
@@ -60,9 +66,15 @@ body {
     transition: all 0.2s;
 }
 
-.new-chat-button:hover {
+.new-chat-button:hover,
+.logout-button:hover {
     background-color: #30363d;
     border-color: #8b949e;
+}
+
+.logout-button {
+    background-color: #21262d;
+    color: #f85149;
 }
 
 .chat-output {

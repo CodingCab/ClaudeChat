@@ -1,4 +1,22 @@
-const socket = io();
+// Get auth token from localStorage
+const authToken = localStorage.getItem('authToken');
+if (!authToken) {
+    window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+}
+
+const socket = io({
+    auth: {
+        token: authToken
+    }
+});
+
+// Handle authentication errors
+socket.on('connect_error', (error) => {
+    if (error.message === 'Authentication required' || error.message === 'Invalid or expired token') {
+        localStorage.removeItem('authToken');
+        window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+    }
+});
 
 const chatOutput = document.getElementById('chatOutput');
 const chatInput = document.getElementById('chatInput');
@@ -34,7 +52,11 @@ function initializeConversation() {
 // Load existing conversation
 async function loadConversation(id) {
     try {
-        const response = await fetch(`/api/conversation/${id}`);
+        const response = await fetch(`/api/conversation/${id}`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
         if (response.ok) {
             const conversation = await response.json();
             conversationId = id;
@@ -85,7 +107,11 @@ function displayConversationHistory(conversation) {
 // Load and display commands
 async function loadCommands() {
     try {
-        const response = await fetch('/api/commands');
+        const response = await fetch('/api/commands', {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
         const data = await response.json();
         return data;
     } catch (error) {
@@ -196,7 +222,10 @@ async function saveCustomCommand(command) {
         
         await fetch('/api/commands', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
             body: JSON.stringify({ customCommands: commands.customCommands })
         });
         
@@ -216,7 +245,10 @@ async function deleteCustomCommand(index) {
         
         await fetch('/api/commands', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
             body: JSON.stringify({ customCommands: commands.customCommands })
         });
         
@@ -490,6 +522,26 @@ const newChatButton = document.getElementById('newChatButton');
 newChatButton.addEventListener('click', () => {
     if (confirm('Start a new conversation? Current conversation will be preserved.')) {
         window.location.href = '/';
+    }
+});
+
+// Logout button
+const logoutButton = document.getElementById('logoutButton');
+logoutButton.addEventListener('click', async () => {
+    try {
+        await fetch('/api/logout', { 
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        localStorage.removeItem('authToken');
+        window.location.href = '/login';
+    } catch (error) {
+        console.error('Logout failed:', error);
+        // Force logout anyway
+        localStorage.removeItem('authToken');
+        window.location.href = '/login';
     }
 });
 

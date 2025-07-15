@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
@@ -7,14 +8,21 @@ const crypto = require('crypto');
 const fs = require('fs').promises;
 const { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } = require('fs');
 const util = require('util');
+const cookieParser = require('cookie-parser');
+const { initializeUsers, authenticateUser, generateToken, requireAuth, socketAuth } = require('./auth');
 
 const app = express();
+app.use(express.json());
+app.use(cookieParser());
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
     cors: {
         origin: "*"
     }
 });
+
+// Apply socket authentication
+io.use(socketAuth);
 
 // In-memory storage for conversations and Claude sessions
 const conversations = new Map();
@@ -88,8 +96,36 @@ loadPersistedData();
 // Middleware
 app.use(express.json());
 
+// Authentication routes
+app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+    
+    const user = await authenticateUser(username, password);
+    if (!user) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    const token = generateToken(user);
+    res.cookie('authToken', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    });
+    
+    res.json({ success: true, user: { username: user.username, role: user.role }, token });
+});
+
+app.post('/api/logout', (req, res) => {
+    res.clearCookie('authToken');
+    res.json({ success: true });
+});
+
+app.get('/api/auth/check', requireAuth, (req, res) => {
+    res.json({ authenticated: true, user: req.user });
+});
+
 // API endpoint to get conversation
-app.get('/api/conversation/:id', (req, res) => {
+app.get('/api/conversation/:id', requireAuth, (req, res) => {
     const conversation = conversations.get(req.params.id);
     if (conversation) {
         res.json(conversation);
@@ -99,7 +135,7 @@ app.get('/api/conversation/:id', (req, res) => {
 });
 
 // API endpoints for commands
-app.get('/api/commands', async (req, res) => {
+app.get('/api/commands', requireAuth, async (req, res) => {
     try {
         const commandsData = await fs.readFile(path.join(__dirname, 'commands.json'), 'utf-8');
         res.json(JSON.parse(commandsData));
@@ -108,7 +144,7 @@ app.get('/api/commands', async (req, res) => {
     }
 });
 
-app.post('/api/commands', async (req, res) => {
+app.post('/api/commands', requireAuth, async (req, res) => {
     try {
         const { customCommands } = req.body;
         const commandsPath = path.join(__dirname, 'commands.json');
@@ -121,7 +157,17 @@ app.post('/api/commands', async (req, res) => {
     }
 });
 
-// Serve static files for root and conversation paths
+// Serve login page
+app.get('/login', (req, res) => {
+    res.sendFile(path.join(__dirname, 'login.html'));
+});
+
+// Serve static files (CSS, JS) without authentication
+app.use('/styles.css', express.static(path.join(__dirname, 'styles.css')));
+app.use('/app.js', express.static(path.join(__dirname, 'app.js')));
+
+// Protected routes - require authentication
+app.use('/', requireAuth);
 app.use(express.static(__dirname));
 app.get('/c/:id', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
@@ -395,6 +441,9 @@ async function killProcessOnPort(port) {
 // Start server with automatic port cleanup
 async function startServer() {
     try {
+        // Initialize authentication users
+        await initializeUsers();
+        
         // Kill any existing process on the port
         await killProcessOnPort(PORT);
         
