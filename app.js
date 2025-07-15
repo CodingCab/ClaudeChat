@@ -73,45 +73,150 @@ function displayConversationHistory(conversation) {
     });
 }
 
-// Show welcome message
-function showWelcomeMessage() {
+// Load and display commands
+async function loadCommands() {
+    try {
+        const response = await fetch('/api/commands');
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error('Failed to load commands:', error);
+        return { defaultCommands: [], customCommands: [] };
+    }
+}
+
+// Show welcome message with commands
+async function showWelcomeMessage() {
+    const commands = await loadCommands();
+    const allCommands = [...commands.defaultCommands, ...commands.customCommands];
+    
     const welcomeDiv = document.createElement('div');
     welcomeDiv.className = 'welcome-message';
     welcomeDiv.innerHTML = `
-        <h3>Welcome to Claude Chat! 👋</h3>
-        <p>Start a conversation with Claude by typing a message below.</p>
-        
-        <div class="sample-commands">
-            <p><strong>Sample commands to try:</strong></p>
-            <div class="command-example" data-command="review and fix active PR's">
-                <div class="command-text">review and fix active PR's</div>
-                <p class="command-description">Claude will check your repository for open pull requests and help review them</p>
-            </div>
-            <div class="command-example" data-command="check that all english text is translated">
-                <div class="command-text">check that all english text is translated</div>
-                <p class="command-description">Claude will scan your codebase for untranslated strings and help identify missing translations</p>
-            </div>
-            <div class="command-example" data-command="find and fix any TODO comments in the code">
-                <div class="command-text">find and fix any TODO comments in the code</div>
-                <p class="command-description">Claude will search for TODO comments and help implement them</p>
-            </div>
-            <div class="command-example" data-command="analyze the project structure and suggest improvements">
-                <div class="command-text">analyze the project structure and suggest improvements</div>
-                <p class="command-description">Claude will review your project organization and recommend best practices</p>
-            </div>
+        <div class="commands-header">
+            <h3>Quick Commands</h3>
+            <button class="add-command-btn" title="Add custom command">+</button>
+        </div>
+        <div class="commands-grid">
+            ${allCommands.map((cmd, index) => `
+                <div class="command-card" data-command="${cmd.text}" data-index="${index}">
+                    <div class="command-icon">${cmd.icon || '⚡'}</div>
+                    <div class="command-content">
+                        <div class="command-text">${cmd.text}</div>
+                        <div class="command-description">${cmd.description}</div>
+                    </div>
+                    ${index >= commands.defaultCommands.length ? 
+                        `<button class="delete-command" data-index="${index - commands.defaultCommands.length}">×</button>` : ''}
+                </div>
+            `).join('')}
         </div>
     `;
     chatOutput.appendChild(welcomeDiv);
     
-    // Make command examples clickable
-    const commandExamples = welcomeDiv.querySelectorAll('.command-example');
-    commandExamples.forEach(example => {
-        example.addEventListener('click', () => {
-            const command = example.getAttribute('data-command');
-            chatInput.value = command;
-            chatInput.focus();
+    // Make command cards clickable to execute
+    const commandCards = welcomeDiv.querySelectorAll('.command-card');
+    commandCards.forEach(card => {
+        card.addEventListener('click', (e) => {
+            if (!e.target.classList.contains('delete-command')) {
+                const command = card.getAttribute('data-command');
+                chatInput.value = command;
+                sendPrompt();
+            }
         });
     });
+    
+    // Add command button
+    const addBtn = welcomeDiv.querySelector('.add-command-btn');
+    addBtn.addEventListener('click', showAddCommandDialog);
+    
+    // Delete command buttons
+    const deleteButtons = welcomeDiv.querySelectorAll('.delete-command');
+    deleteButtons.forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const index = parseInt(btn.getAttribute('data-index'));
+            await deleteCustomCommand(index);
+        });
+    });
+}
+
+// Show add command dialog
+function showAddCommandDialog() {
+    const dialog = document.createElement('div');
+    dialog.className = 'command-dialog-overlay';
+    dialog.innerHTML = `
+        <div class="command-dialog">
+            <h3>Add Custom Command</h3>
+            <input type="text" id="newCommandText" placeholder="Command text" />
+            <input type="text" id="newCommandDesc" placeholder="Description" />
+            <input type="text" id="newCommandIcon" placeholder="Icon (emoji)" maxlength="2" />
+            <div class="dialog-buttons">
+                <button class="cancel-btn">Cancel</button>
+                <button class="save-btn">Save</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(dialog);
+    
+    // Focus first input
+    dialog.querySelector('#newCommandText').focus();
+    
+    // Handle cancel
+    dialog.querySelector('.cancel-btn').addEventListener('click', () => {
+        dialog.remove();
+    });
+    
+    // Handle save
+    dialog.querySelector('.save-btn').addEventListener('click', async () => {
+        const text = dialog.querySelector('#newCommandText').value.trim();
+        const description = dialog.querySelector('#newCommandDesc').value.trim();
+        const icon = dialog.querySelector('#newCommandIcon').value.trim() || '⚡';
+        
+        if (text && description) {
+            await saveCustomCommand({ text, description, icon });
+            dialog.remove();
+        }
+    });
+}
+
+// Save custom command
+async function saveCustomCommand(command) {
+    try {
+        const commands = await loadCommands();
+        commands.customCommands.push(command);
+        
+        await fetch('/api/commands', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ customCommands: commands.customCommands })
+        });
+        
+        // Refresh the welcome screen
+        chatOutput.innerHTML = '';
+        showWelcomeMessage();
+    } catch (error) {
+        console.error('Failed to save command:', error);
+    }
+}
+
+// Delete custom command
+async function deleteCustomCommand(index) {
+    try {
+        const commands = await loadCommands();
+        commands.customCommands.splice(index, 1);
+        
+        await fetch('/api/commands', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ customCommands: commands.customCommands })
+        });
+        
+        // Refresh the welcome screen
+        chatOutput.innerHTML = '';
+        showWelcomeMessage();
+    } catch (error) {
+        console.error('Failed to delete command:', error);
+    }
 }
 
 function addMessage(content, className = 'claude-message') {

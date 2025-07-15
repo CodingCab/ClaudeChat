@@ -1,0 +1,25 @@
+{
+  "defaultCommands": [
+    {
+      "text": "review and fix active PR's",
+      "description": "Check repository for open pull requests and help review them",
+      "icon": "🔍"
+    },
+    {
+      "text": "check that all english text is translated",
+      "description": "Scan codebase for untranslated strings and identify missing translations",
+      "icon": "🌐"
+    },
+    {
+      "text": "find and fix any TODO comments in the code",
+      "description": "Search for TODO comments and help implement them",
+      "icon": "📝"
+    },
+    {
+      "text": "analyze the project structure and suggest improvements",
+      "description": "Review project organization and recommend best practices",
+      "icon": "📊"
+    }
+  ],
+  "customCommands": []
+}

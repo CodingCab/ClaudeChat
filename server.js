@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const { spawn } = require('child_process');
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs').promises;
 
 const app = express();
 const httpServer = createServer(app);
@@ -27,6 +28,29 @@ app.get('/api/conversation/:id', (req, res) => {
         res.json(conversation);
     } else {
         res.status(404).json({ error: 'Conversation not found' });
+    }
+});
+
+// API endpoints for commands
+app.get('/api/commands', async (req, res) => {
+    try {
+        const commandsData = await fs.readFile(path.join(__dirname, 'commands.json'), 'utf-8');
+        res.json(JSON.parse(commandsData));
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to load commands' });
+    }
+});
+
+app.post('/api/commands', async (req, res) => {
+    try {
+        const { customCommands } = req.body;
+        const commandsPath = path.join(__dirname, 'commands.json');
+        const currentData = JSON.parse(await fs.readFile(commandsPath, 'utf-8'));
+        currentData.customCommands = customCommands;
+        await fs.writeFile(commandsPath, JSON.stringify(currentData, null, 2));
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to save commands' });
     }
 });
 
