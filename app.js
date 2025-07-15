@@ -7,6 +7,7 @@ const sendButton = document.getElementById('sendButton');
 let isProcessing = false;
 let currentMessages = [];
 let conversationId = null;
+let isWaitingResponse = false; // Track if we're waiting for Claude's response
 
 // Helper function to escape HTML
 function escapeHtml(text) {
@@ -342,8 +343,9 @@ function sendPromptToServer(prompt) {
 
     // Disable input while processing
     isProcessing = true;
+    isWaitingResponse = true;
     chatInput.disabled = true;
-    sendButton.disabled = true;
+    updateSendButton();
 
     // Reset current messages array
     currentMessages = [];
@@ -398,6 +400,9 @@ socket.on('output', (data) => {
                 } else if (json.type === 'system') {
                     // Log system messages for debugging
                     console.log('System message:', json);
+                    if (json.message && json.message.includes('Process stopped by user')) {
+                        addMessage(json.message, 'system-message');
+                    }
                 } else if (json.type === 'error') {
                     // Display errors
                     addMessage(`Error: ${json.message || JSON.stringify(json)}`, 'error-message');
@@ -418,25 +423,65 @@ socket.on('output', (data) => {
 socket.on('error', (error) => {
     addMessage(`Error: ${error}`, 'error-message');
     isProcessing = false;
+    isWaitingResponse = false;
     chatInput.disabled = false;
-    sendButton.disabled = false;
+    updateSendButton();
 });
 
 // Handle completion
 socket.on('complete', (code) => {
     isProcessing = false;
+    isWaitingResponse = false;
     chatInput.disabled = false;
-    sendButton.disabled = false;
+    updateSendButton();
     chatInput.focus();
 });
 
+// Function to update send/stop button
+function updateSendButton() {
+    if (isWaitingResponse) {
+        sendButton.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="4" width="8" height="8" fill="currentColor"/></svg> Stop';
+        sendButton.classList.add('stop-button');
+        sendButton.disabled = false;
+    } else {
+        sendButton.innerHTML = 'Send';
+        sendButton.classList.remove('stop-button');
+        sendButton.disabled = isProcessing || !chatInput.value.trim();
+    }
+}
+
+// Function to stop current prompt
+function stopPrompt() {
+    socket.emit('stopPrompt');
+    isWaitingResponse = false;
+    isProcessing = false;
+    chatInput.disabled = false;
+    updateSendButton();
+}
+
 // Event listeners
-sendButton.addEventListener('click', sendPrompt);
+sendButton.addEventListener('click', () => {
+    if (isWaitingResponse) {
+        stopPrompt();
+    } else {
+        sendPrompt();
+    }
+});
+
+chatInput.addEventListener('input', () => {
+    if (!isWaitingResponse) {
+        updateSendButton();
+    }
+});
 
 chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        sendPrompt();
+        if (isWaitingResponse) {
+            stopPrompt();
+        } else {
+            sendPrompt();
+        }
     }
 });
 

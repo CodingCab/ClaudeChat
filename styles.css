@@ -326,6 +326,22 @@ body {
     cursor: not-allowed;
 }
 
+.send-button.stop-button {
+    background-color: #da3633;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.send-button.stop-button:hover {
+    background-color: #f85149;
+}
+
+.send-button.stop-button svg {
+    width: 16px;
+    height: 16px;
+}
+
 /* Command dialog */
 .command-dialog-overlay {
     position: fixed;

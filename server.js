@@ -19,6 +19,7 @@ const io = new Server(httpServer, {
 // In-memory storage for conversations and Claude sessions
 const conversations = new Map();
 const claudeSessions = new Map(); // Map conversation ID to Claude session ID
+const activeProcesses = new Map(); // Map socket ID to active Claude process
 
 // Persistence paths
 const DATA_DIR = path.join(__dirname, 'data');
@@ -231,6 +232,9 @@ io.on('connection', (socket) => {
             stdio: ['pipe', 'pipe', 'pipe']
         });
         
+        // Store the active process
+        activeProcesses.set(socket.id, claudeProcess);
+        
         let outputBuffer = '';
         let errorBuffer = '';
         const messageBuffer = [];
@@ -288,6 +292,8 @@ io.on('connection', (socket) => {
         // Handle process completion
         claudeProcess.on('close', (code) => {
             console.log(`Claude process exited with code ${code}`);
+            // Remove the process from active processes
+            activeProcesses.delete(socket.id);
             if (code !== 0 && errorBuffer) {
                 console.error('Full error output:', errorBuffer);
             }
@@ -316,8 +322,41 @@ io.on('connection', (socket) => {
         });
     });
 
+    socket.on('stopPrompt', () => {
+        console.log('Stop request received');
+        const claudeProcess = activeProcesses.get(socket.id);
+        if (claudeProcess) {
+            try {
+                claudeProcess.kill('SIGTERM');
+                // If process doesn't terminate gracefully, force kill after 1 second
+                setTimeout(() => {
+                    if (activeProcesses.has(socket.id)) {
+                        claudeProcess.kill('SIGKILL');
+                    }
+                }, 1000);
+                socket.emit('output', JSON.stringify({
+                    type: 'system',
+                    message: 'Process stopped by user'
+                }) + '\n');
+            } catch (error) {
+                console.error('Error stopping process:', error);
+                socket.emit('error', 'Failed to stop process');
+            }
+        }
+    });
+
     socket.on('disconnect', () => {
         console.log('Client disconnected');
+        // Clean up any active process on disconnect
+        const claudeProcess = activeProcesses.get(socket.id);
+        if (claudeProcess) {
+            try {
+                claudeProcess.kill('SIGTERM');
+                activeProcesses.delete(socket.id);
+            } catch (error) {
+                console.error('Error cleaning up process on disconnect:', error);
+            }
+        }
     });
 });
 
