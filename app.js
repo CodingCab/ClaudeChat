@@ -917,35 +917,48 @@ showRepositoriesButton.addEventListener('click', async () => {
                     ${lastModified ? `<div style="color: #8b949e; font-size: 12px; margin-top: 4px;">Last modified: ${lastModified}</div>` : ''}
                 `;
                 
-                // Click to open project session
+                // Click to switch to project
                 projectItem.addEventListener('click', () => {
                     // Close modal
                     repositoriesModal.style.display = 'none';
-                    
-                    // Clear current conversation
-                    chatHistory.innerHTML = '';
-                    conversationId = null;
                     
                     // Set working directory to project path
                     const projectPath = project.path || `./projects/${projectName}`;
                     workingDirectoryInput.value = projectPath;
                     
-                    // Create new conversation for this project
-                    socket.emit('createConversation', (newConversationId) => {
-                        conversationId = newConversationId;
-                        window.history.pushState({}, '', `/c/${conversationId}`);
-                        
-                        // Set working directory for the conversation
+                    // If we have an active conversation, update its working directory
+                    if (conversationId) {
                         socket.emit('setWorkingDirectory', {
                             conversationId,
                             workingDirectory: projectPath
+                        }, (response) => {
+                            if (response.error) {
+                                console.error('Error setting working directory:', response.error);
+                                addMessage(`Error setting working directory: ${response.error}`, 'error');
+                            } else {
+                                addMessage(`Switched to project: ${projectName} (${projectPath})`, 'system');
+                            }
                         });
-                        
-                        // Send initial prompt to open the project
-                        const prompt = `${projectPath}/claude`;
-                        userInput.value = prompt;
-                        sendPrompt();
-                    });
+                    } else {
+                        // No active conversation, create one
+                        socket.emit('createConversation', (newConversationId) => {
+                            conversationId = newConversationId;
+                            window.history.pushState({}, '', `/c/${conversationId}`);
+                            
+                            // Set working directory for the conversation
+                            socket.emit('setWorkingDirectory', {
+                                conversationId,
+                                workingDirectory: projectPath
+                            }, (response) => {
+                                if (response.error) {
+                                    console.error('Error setting working directory:', response.error);
+                                    addMessage(`Error setting working directory: ${response.error}`, 'error');
+                                } else {
+                                    addMessage(`Opened project: ${projectName} (${projectPath})`, 'system');
+                                }
+                            });
+                        });
+                    }
                 });
                 
                 repositoriesList.appendChild(projectItem);
