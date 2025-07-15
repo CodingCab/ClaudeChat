@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude Chat</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="chat-window">
+            <div class="chat-header">
+                <h2>Claude Chat</h2>
+                <button id="newChatButton" class="new-chat-button">New Chat</button>
+            </div>
+            <div class="chat-output" id="chatOutput">
+                <div class="welcome-message">
+                    <p>Welcome! Type your prompt below to chat with Claude.</p>
+                    <div class="sample-command">
+                        <p>Sample command:</p>
+                        <pre><code>claude "ask me yes/no question" --print --output-format stream-json --verbose</code></pre>
+                        <div class="command-output">
+                            <p>Output:</p>
+                            <pre>{
+  "type": "text",
+  "text": "Would you like me to help you with a programming task today?"
+}</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="chat-input-container">
+                <textarea 
+                    id="chatInput" 
+                    class="chat-input" 
+                    placeholder="Enter your prompt here..."
+                    rows="3"
+                ></textarea>
+                <button id="sendButton" class="send-button">Send</button>
+            </div>
+        </div>
+    </div>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
