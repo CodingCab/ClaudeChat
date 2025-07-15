@@ -19,6 +19,11 @@
       "text": "analyze the project structure and suggest improvements",
       "description": "Review project organization and recommend best practices",
       "icon": "📊"
+    },
+    {
+      "text": "./newProject/claude create a new React app with TypeScript",
+      "description": "Create a new folder and run Claude from that directory",
+      "icon": "📁"
     }
   ],
   "customCommands": []

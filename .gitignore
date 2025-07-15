@@ -34,3 +34,7 @@ build/
 *.temp
 .cache/
 
+# Data persistence
+data/conversations/
+data/sessions.json
+

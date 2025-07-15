@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .status { margin: 10px 0; padding: 10px; border: 1px solid #ccc; }
+        .success { background: #d4f4dd; }
+        .error { background: #f4d4d4; }
+    </style>
+</head>
+<body>
+    <h1>ClaudeUI Debug Test</h1>
+    <div id="results"></div>
+
+    <script>
+        const results = document.getElementById('results');
+        
+        function addResult(test, success, details) {
+            const div = document.createElement('div');
+            div.className = 'status ' + (success ? 'success' : 'error');
+            div.innerHTML = `<strong>${test}:</strong> ${success ? '✓ PASS' : '✗ FAIL'} - ${details}`;
+            results.appendChild(div);
+        }
+
+        // Test 1: Check if page loads
+        addResult('Page Load', true, 'Debug page loaded successfully');
+
+        // Test 2: Check localStorage access
+        try {
+            localStorage.setItem('test', 'value');
+            localStorage.removeItem('test');
+            addResult('LocalStorage', true, 'LocalStorage is accessible');
+        } catch (e) {
+            addResult('LocalStorage', false, e.message);
+        }
+
+        // Test 3: Test fetch API
+        fetch('http://localhost:3000/api/commands')
+            .then(response => {
+                if (response.ok) {
+                    return response.json();
+                }
+                throw new Error('Response not OK: ' + response.status);
+            })
+            .then(data => {
+                addResult('API Fetch', true, `Commands loaded: ${data.defaultCommands.length} default, ${data.customCommands.length} custom`);
+            })
+            .catch(error => {
+                addResult('API Fetch', false, error.message);
+            });
+
+        // Test 4: Check if Socket.io loads
+        const script = document.createElement('script');
+        script.src = 'http://localhost:3000/socket.io/socket.io.js';
+        script.onload = () => {
+            addResult('Socket.io Library', true, 'Socket.io loaded successfully');
+            
+            // Test 5: Try to connect with Socket.io
+            try {
+                const socket = io('http://localhost:3000');
+                socket.on('connect', () => {
+                    addResult('Socket.io Connection', true, 'Connected to server via WebSocket');
+                });
+                socket.on('connect_error', (error) => {
+                    addResult('Socket.io Connection', false, 'Connection error: ' + error.message);
+                });
+            } catch (e) {
+                addResult('Socket.io Connection', false, 'Failed to create socket: ' + e.message);
+            }
+        };
+        script.onerror = () => {
+            addResult('Socket.io Library', false, 'Failed to load Socket.io library');
+        };
+        document.head.appendChild(script);
+
+        // Test 6: Check console for errors
+        window.addEventListener('error', (e) => {
+            addResult('JavaScript Error', false, `${e.message} at ${e.filename}:${e.lineno}:${e.colno}`);
+        });
+    </script>
+</body>
+</html>

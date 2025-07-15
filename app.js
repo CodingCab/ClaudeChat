@@ -8,6 +8,13 @@ let isProcessing = false;
 let currentMessages = [];
 let conversationId = null;
 
+// Helper function to escape HTML
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 // Initialize conversation
 function initializeConversation() {
     // Check if we're loading an existing conversation
@@ -64,6 +71,7 @@ function displayConversationHistory(conversation) {
                 } else if (item.type === 'user' && item.message && item.message.content) {
                     item.message.content.forEach(content => {
                         if (content.type === 'tool_result') {
+                            console.log('Loading tool_result from history:', content);
                             addMessage(content, 'claude-message');
                         }
                     });
@@ -220,6 +228,8 @@ async function deleteCustomCommand(index) {
 }
 
 function addMessage(content, className = 'claude-message') {
+    console.log('addMessage called with:', content, 'className:', className);
+    
     const messageDiv = document.createElement('div');
     messageDiv.classList.add('message');
     messageDiv.classList.add(className);
@@ -229,18 +239,68 @@ function addMessage(content, className = 'claude-message') {
         messageDiv.textContent = content;
     } else if (content.type === 'tool_use') {
         messageDiv.classList.add('tool-message');
-        messageDiv.innerHTML = `<strong>🔧 Using tool: ${content.name}</strong>`;
-        if (content.input) {
-            const pre = document.createElement('pre');
-            pre.textContent = JSON.stringify(content.input, null, 2);
-            messageDiv.appendChild(pre);
+        
+        // Create terminal-like command display
+        const terminalDiv = document.createElement('div');
+        terminalDiv.className = 'terminal-command';
+        
+        // Format the command based on the tool
+        let commandStr = '';
+        if (content.name === 'Bash') {
+            commandStr = content.input.command || '';
+            terminalDiv.innerHTML = `<span class="terminal-prompt">$</span> <span class="terminal-cmd">${escapeHtml(commandStr)}</span>`;
+        } else if (content.name === 'Read') {
+            commandStr = `cat ${content.input.file_path || ''}`;
+            terminalDiv.innerHTML = `<span class="terminal-prompt">$</span> <span class="terminal-cmd">${escapeHtml(commandStr)}</span>`;
+        } else if (content.name === 'Write') {
+            commandStr = `echo "..." > ${content.input.file_path || ''}`;
+            terminalDiv.innerHTML = `<span class="terminal-prompt">$</span> <span class="terminal-cmd">${escapeHtml(commandStr)}</span>`;
+        } else if (content.name === 'Edit') {
+            commandStr = `sed -i 's/.../.../g' ${content.input.file_path || ''}`;
+            terminalDiv.innerHTML = `<span class="terminal-prompt">$</span> <span class="terminal-cmd">${escapeHtml(commandStr)}</span>`;
+        } else if (content.name === 'Grep') {
+            commandStr = `grep "${content.input.pattern || ''}" ${content.input.path || '.'}`;
+            terminalDiv.innerHTML = `<span class="terminal-prompt">$</span> <span class="terminal-cmd">${escapeHtml(commandStr)}</span>`;
+        } else if (content.name === 'LS') {
+            commandStr = `ls ${content.input.path || '.'}`;
+            terminalDiv.innerHTML = `<span class="terminal-prompt">$</span> <span class="terminal-cmd">${escapeHtml(commandStr)}</span>`;
+        } else if (content.name === 'Glob') {
+            commandStr = `find . -name "${content.input.pattern || ''}"`;
+            terminalDiv.innerHTML = `<span class="terminal-prompt">$</span> <span class="terminal-cmd">${escapeHtml(commandStr)}</span>`;
+        } else if (content.name === 'MultiEdit') {
+            commandStr = `vim ${content.input.file_path || ''} # Multiple edits`;
+            terminalDiv.innerHTML = `<span class="terminal-prompt">$</span> <span class="terminal-cmd">${escapeHtml(commandStr)}</span>`;
+        } else if (content.name === 'WebSearch') {
+            commandStr = `search "${content.input.query || ''}"`;
+            terminalDiv.innerHTML = `<span class="terminal-prompt">🔍</span> <span class="terminal-cmd">${escapeHtml(commandStr)}</span>`;
+        } else if (content.name === 'WebFetch') {
+            commandStr = `curl ${content.input.url || ''}`;
+            terminalDiv.innerHTML = `<span class="terminal-prompt">$</span> <span class="terminal-cmd">${escapeHtml(commandStr)}</span>`;
+        } else {
+            // Generic tool display
+            terminalDiv.innerHTML = `<span class="terminal-prompt">⚡</span> <span class="terminal-tool">${escapeHtml(content.name)}</span>`;
+            if (content.input && Object.keys(content.input).length > 0) {
+                const argsDiv = document.createElement('div');
+                argsDiv.className = 'terminal-args';
+                argsDiv.textContent = JSON.stringify(content.input, null, 2);
+                terminalDiv.appendChild(argsDiv);
+            }
         }
+        
+        messageDiv.appendChild(terminalDiv);
     } else if (content.type === 'tool_result') {
         messageDiv.classList.add('tool-result');
-        messageDiv.innerHTML = `<strong>📋 Tool result:</strong>`;
+        
+        // Create terminal-like output display
+        const outputDiv = document.createElement('div');
+        outputDiv.className = 'terminal-output';
+        
+        // Add the output content
         const pre = document.createElement('pre');
-        pre.textContent = content.content;
-        messageDiv.appendChild(pre);
+        pre.textContent = content.content || '';
+        outputDiv.appendChild(pre);
+        
+        messageDiv.appendChild(outputDiv);
     }
     
     chatOutput.appendChild(messageDiv);
@@ -317,6 +377,7 @@ socket.on('output', (data) => {
                     // Handle tool results from user messages
                     json.message.content.forEach(content => {
                         if (content.type === 'tool_result') {
+                            console.log('Received tool_result:', content);
                             addMessage(content, 'claude-message');
                         }
                     });
@@ -328,12 +389,21 @@ socket.on('output', (data) => {
                         // Skip other result messages as they duplicate content
                         console.log('Result:', json.result);
                     }
+                } else if (json.type === 'tool_message') {
+                    // Handle tool_message type
+                    console.log('Tool message:', json);
+                    if (json.content) {
+                        addMessage(json.content, 'tool-result');
+                    }
                 } else if (json.type === 'system') {
                     // Log system messages for debugging
                     console.log('System message:', json);
                 } else if (json.type === 'error') {
                     // Display errors
                     addMessage(`Error: ${json.message || JSON.stringify(json)}`, 'error-message');
+                } else {
+                    // Log any unhandled message types
+                    console.log('Unhandled message type:', json.type, json);
                 }
             }
         });

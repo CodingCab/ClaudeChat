@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Connection</title>
+</head>
+<body>
+    <h1>Testing ClaudeUI Connection</h1>
+    <div id="status">Checking...</div>
+    <script>
+        // Test basic HTTP connection
+        fetch('http://localhost:3000/')
+            .then(response => {
+                document.getElementById('status').innerHTML += '<br>HTTP connection: OK (status ' + response.status + ')';
+                return response.text();
+            })
+            .then(html => {
+                document.getElementById('status').innerHTML += '<br>HTML received: ' + html.length + ' bytes';
+            })
+            .catch(error => {
+                document.getElementById('status').innerHTML += '<br>HTTP connection: ERROR - ' + error;
+            });
+
+        // Test API endpoint
+        fetch('http://localhost:3000/api/commands')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('status').innerHTML += '<br>API /api/commands: OK - ' + JSON.stringify(data).substring(0, 100) + '...';
+            })
+            .catch(error => {
+                document.getElementById('status').innerHTML += '<br>API /api/commands: ERROR - ' + error;
+            });
+
+        // Test Socket.io library
+        fetch('http://localhost:3000/socket.io/socket.io.js')
+            .then(response => {
+                document.getElementById('status').innerHTML += '<br>Socket.io library: OK (status ' + response.status + ')';
+            })
+            .catch(error => {
+                document.getElementById('status').innerHTML += '<br>Socket.io library: ERROR - ' + error;
+            });
+    </script>
+</body>
+</html>
