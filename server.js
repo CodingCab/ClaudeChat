@@ -134,6 +134,25 @@ app.get('/api/conversation/:id', requireAuth, (req, res) => {
     }
 });
 
+// API endpoint to update conversation working directory
+app.post('/api/conversation/:id/working-directory', requireAuth, async (req, res) => {
+    const conversation = conversations.get(req.params.id);
+    if (conversation) {
+        const { workingDirectory } = req.body;
+        
+        // Validate the directory exists
+        if (!existsSync(workingDirectory)) {
+            return res.status(400).json({ error: 'Directory does not exist' });
+        }
+        
+        conversation.workingDirectory = workingDirectory;
+        await saveConversation(req.params.id);
+        res.json({ success: true, workingDirectory });
+    } else {
+        res.status(404).json({ error: 'Conversation not found' });
+    }
+});
+
 // API endpoints for commands
 app.get('/api/commands', requireAuth, async (req, res) => {
     try {
@@ -154,6 +173,76 @@ app.post('/api/commands', requireAuth, async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: 'Failed to save commands' });
+    }
+});
+
+// API endpoint to list repositories
+app.get('/api/repositories', requireAuth, async (req, res) => {
+    try {
+        const repoPath = path.join(__dirname, 'repositories');
+        
+        // Create repositories directory if it doesn't exist
+        if (!existsSync(repoPath)) {
+            mkdirSync(repoPath, { recursive: true });
+        }
+        
+        const repositories = await fs.readdir(repoPath);
+        const repoList = [];
+        
+        for (const repo of repositories) {
+            const fullPath = path.join(repoPath, repo);
+            const stat = await fs.stat(fullPath);
+            if (stat.isDirectory()) {
+                repoList.push({
+                    name: repo,
+                    path: fullPath,
+                    lastModified: stat.mtime
+                });
+            }
+        }
+        
+        // Sort by last modified date (newest first)
+        repoList.sort((a, b) => b.lastModified - a.lastModified);
+        
+        res.json({ repositories: repoList });
+    } catch (error) {
+        console.error('Failed to list repositories:', error);
+        res.status(500).json({ error: 'Failed to list repositories' });
+    }
+});
+
+// API endpoint to list projects (cloned repositories)
+app.get('/api/projects', requireAuth, async (req, res) => {
+    try {
+        const projectsPath = path.join(__dirname, 'projects');
+        
+        // Create projects directory if it doesn't exist
+        if (!existsSync(projectsPath)) {
+            mkdirSync(projectsPath, { recursive: true });
+        }
+        
+        const projects = await fs.readdir(projectsPath);
+        const projectList = [];
+        
+        for (const project of projects) {
+            const fullPath = path.join(projectsPath, project);
+            const stat = await fs.stat(fullPath);
+            if (stat.isDirectory()) {
+                projectList.push({
+                    name: project,
+                    path: fullPath,
+                    lastModified: stat.mtime
+                });
+            }
+        }
+        
+        // Sort by last modified date (newest first)
+        projectList.sort((a, b) => b.lastModified - a.lastModified);
+        
+        res.json({ projects: projectList });
+    } catch (error) {
+        console.error('Failed to list projects:', error);
+        res.status(500).json({ error: 'Failed to list projects' });
     }
 });
 
@@ -186,6 +275,79 @@ io.on('connection', (socket) => {
         console.log(`Client joined conversation: ${conversationId}`);
     });
 
+    // Handle setting working directory
+    socket.on('setWorkingDirectory', async ({ conversationId, workingDirectory }, callback) => {
+        const conversation = conversations.get(conversationId);
+        if (conversation) {
+            try {
+                // Create directory if it doesn't exist
+                if (!existsSync(workingDirectory)) {
+                    mkdirSync(workingDirectory, { recursive: true });
+                    console.log(`Created directory: ${workingDirectory}`);
+                }
+                
+                conversation.workingDirectory = workingDirectory;
+                await saveConversation(conversationId);
+                callback({ success: true, workingDirectory, created: true });
+            } catch (error) {
+                console.error(`Failed to create directory: ${error.message}`);
+                callback({ error: `Failed to create directory: ${error.message}` });
+            }
+        } else {
+            callback({ error: 'Conversation not found' });
+        }
+    });
+
+    // Handle cloning repository
+    socket.on('cloneRepository', async ({ conversationId, repository, projectName }) => {
+        try {
+            const sourcePath = path.join(__dirname, 'repositories', repository);
+            const destPath = path.join(__dirname, 'projects', projectName);
+            
+            // Check if source repository exists
+            if (!existsSync(sourcePath)) {
+                socket.emit('error', { message: `Repository "${repository}" not found` });
+                return;
+            }
+            
+            // Check if destination already exists
+            if (existsSync(destPath)) {
+                socket.emit('error', { message: `Project "${projectName}" already exists` });
+                return;
+            }
+            
+            // Create projects directory if it doesn't exist
+            const projectsDir = path.join(__dirname, 'projects');
+            if (!existsSync(projectsDir)) {
+                mkdirSync(projectsDir, { recursive: true });
+            }
+            
+            // Copy repository to projects folder
+            const { exec } = require('child_process');
+            exec(`cp -r "${sourcePath}" "${destPath}"`, (error, stdout, stderr) => {
+                if (error) {
+                    console.error(`Error copying repository: ${error}`);
+                    console.error(`stderr: ${stderr}`);
+                    console.error(`Source: ${sourcePath}`);
+                    console.error(`Destination: ${destPath}`);
+                    socket.emit('error', { message: `Failed to clone repository: ${error.message}` });
+                    return;
+                }
+                
+                console.log(`Cloned repository "${repository}" to "${destPath}"`);
+                console.log(`stdout: ${stdout}`);
+                socket.emit('repositoryCloned', {
+                    repository,
+                    projectName,
+                    path: destPath
+                });
+            });
+        } catch (error) {
+            console.error('Error in cloneRepository:', error);
+            socket.emit('error', { message: `Failed to clone repository: ${error.message}` });
+        }
+    });
+
     // Handle creating a new conversation
     socket.on('createConversation', async (callback) => {
         const conversationId = crypto.randomBytes(8).toString('hex');
@@ -195,6 +357,7 @@ io.on('connection', (socket) => {
         conversations.set(conversationId, {
             id: conversationId,
             messages: [],
+            workingDirectory: process.cwd(),
             createdAt: new Date().toISOString()
         });
         
@@ -220,7 +383,7 @@ io.on('connection', (socket) => {
         }
         
         // Check if prompt starts with a path pattern (e.g., "./folder/claude ...")
-        let workingDirectory = process.cwd();
+        let workingDirectory = conversation.workingDirectory || process.cwd();
         let actualPrompt = prompt;
         
         // Pattern to match: ./path/to/folder/claude <actual prompt>
@@ -231,14 +394,17 @@ io.on('connection', (socket) => {
             const folderPath = match[1];
             actualPrompt = match[2];
             
-            // Resolve the full path
-            const fullPath = path.resolve(process.cwd(), folderPath);
+            // Extract the folder name from the path (e.g., "./myproject" -> "myproject")
+            const folderName = folderPath.replace(/^\.\//, '');
+            
+            // Resolve the full path within the projects directory
+            const fullPath = path.resolve(process.cwd(), 'projects', folderName);
             
             try {
                 // Create directory if it doesn't exist
                 if (!existsSync(fullPath)) {
                     mkdirSync(fullPath, { recursive: true });
-                    console.log(`Created directory: ${fullPath}`);
+                    console.log(`Created directory in projects folder: ${fullPath}`);
                     socket.emit('output', JSON.stringify({
                         type: 'system',
                         message: `Created directory: ${fullPath}`

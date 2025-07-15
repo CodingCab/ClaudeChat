@@ -30,3 +30,7 @@ Thumbs.db
 # Supervisor
 supervisord.pid
 supervisor.sock
+
+# Project folders
+projects/
+repositories/

@@ -77,6 +77,117 @@ body {
     color: #f85149;
 }
 
+.working-directory-container {
+    background-color: #161b22;
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid #30363d;
+    font-size: 14px;
+}
+
+.working-directory-container label {
+    color: #8b949e;
+    font-weight: 500;
+}
+
+.working-directory-input {
+    flex: 1;
+    background-color: #010409;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    padding: 6px 12px;
+    border-radius: 2px;
+    font-family: inherit;
+    font-size: 13px;
+}
+
+.working-directory-input:focus {
+    outline: none;
+    border-color: #58a6ff;
+}
+
+.set-directory-button {
+    background-color: #238636;
+    color: #ffffff;
+    border: 1px solid #2ea043;
+    padding: 6px 16px;
+    border-radius: 2px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+    transition: all 0.2s;
+}
+
+.set-directory-button:hover {
+    background-color: #2ea043;
+}
+
+/* Repository selector styles */
+.repository-selector {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.directory-input {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.repository-dropdown {
+    background-color: #010409;
+    color: #e6edf3;
+    border: 1px solid #30363d;
+    padding: 6px 12px;
+    border-radius: 2px;
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    min-width: 200px;
+}
+
+.repository-dropdown:focus {
+    outline: none;
+    border-color: #58a6ff;
+}
+
+.project-name-input {
+    background-color: #010409;
+    color: #e6edf3;
+    border: 1px solid #30363d;
+    padding: 6px 12px;
+    border-radius: 2px;
+    font-family: inherit;
+    font-size: 13px;
+    flex: 1;
+    min-width: 150px;
+}
+
+.project-name-input:focus {
+    outline: none;
+    border-color: #58a6ff;
+}
+
+.clone-repo-button {
+    background-color: #238636;
+    color: #ffffff;
+    border: 1px solid #2ea043;
+    padding: 6px 16px;
+    border-radius: 2px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+    transition: all 0.2s;
+}
+
+.clone-repo-button:hover {
+    background-color: #2ea043;
+}
+
 .chat-output {
     flex: 1;
     padding: 24px;
@@ -451,4 +562,107 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
     background: #484f58;
+}
+
+/* Modal styles */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+}
+
+.modal-content {
+    background-color: #0d1117;
+    margin: 10% auto;
+    padding: 0;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    width: 80%;
+    max-width: 600px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    border-bottom: 1px solid #30363d;
+}
+
+.modal-header h3 {
+    color: #c9d1d9;
+    margin: 0;
+    font-size: 18px;
+}
+
+.close {
+    color: #8b949e;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 20px;
+}
+
+.close:hover,
+.close:focus {
+    color: #c9d1d9;
+}
+
+.modal-body {
+    padding: 24px;
+}
+
+.repositories-list {
+    display: grid;
+    gap: 12px;
+}
+
+.repository-item {
+    background-color: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.repository-item:hover {
+    border-color: #58a6ff;
+    background-color: #1c2128;
+}
+
+.repository-name {
+    color: #58a6ff;
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.repository-path {
+    color: #8b949e;
+    font-size: 14px;
+    font-family: 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+
+.show-repositories-button {
+    background-color: #21262d;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    padding: 6px 16px;
+    border-radius: 2px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.show-repositories-button:hover {
+    background-color: #30363d;
+    border-color: #8b949e;
 }

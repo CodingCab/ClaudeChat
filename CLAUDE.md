@@ -13,7 +13,7 @@ ClaudeChat is a web-based chat interface for Claude CLI that provides a develope
 - Spawns Claude CLI processes with `--print --output-format stream-json --verbose` flags
 - Manages conversation state using in-memory Map structures
 - Supports Claude's `--resume` flag for session continuity
-- **Special feature**: Path-based command execution - commands starting with `./folder/claude` will create the directory and run Claude from that location
+- **Special feature**: Path-based command execution - commands starting with `./folder/claude` will create the directory in `./projects/folder` and run Claude from that location
 
 ### Frontend
 - **app.js**: Handles WebSocket communication, command management, and UI updates
@@ -29,7 +29,10 @@ ClaudeChat is a web-based chat interface for Claude CLI that provides a develope
 ## Development Commands
 
 ```bash
-# Start the development server
+# Start the development server with auto-restart on file changes
+npm run dev
+
+# Start the production server (no auto-restart)
 npm start
 
 # The server runs on port 3000 by default
@@ -40,7 +43,7 @@ npm start
 
 ### Claude CLI Integration
 - Pre-approved tools: `LS,Read,Write,Edit,Bash,Grep,Glob,WebSearch,WebFetch`
-- Working directory changes based on command prefix (e.g., `./newFolder/claude create app`)
+- Working directory changes based on command prefix (e.g., `./newFolder/claude create app` creates `./projects/newFolder/`)
 - Stdin is used for prompt input instead of command arguments for reliability
 
 ### Message Handling Flow

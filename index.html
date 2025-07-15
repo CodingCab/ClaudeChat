@@ -13,7 +13,23 @@
                 <h2>Claude Chat</h2>
                 <div class="header-buttons">
                     <button id="newChatButton" class="new-chat-button">New Chat</button>
+                    <button id="showRepositoriesButton" class="show-repositories-button">Repositories</button>
                     <button id="logoutButton" class="logout-button">Logout</button>
+                </div>
+            </div>
+            <div class="working-directory-container">
+                <div class="repository-selector">
+                    <label for="repositoryDropdown">Repository:</label>
+                    <select id="repositoryDropdown" class="repository-dropdown">
+                        <option value="">Select a repository...</option>
+                    </select>
+                    <input type="text" id="projectName" class="project-name-input" placeholder="Project name" style="display: none;" />
+                    <button id="cloneRepoButton" class="clone-repo-button" style="display: none;">Clone</button>
+                </div>
+                <div class="directory-input">
+                    <label for="workingDirectory">Working Directory:</label>
+                    <input type="text" id="workingDirectory" class="working-directory-input" placeholder="/path/to/directory" />
+                    <button id="setDirectoryButton" class="set-directory-button">Set</button>
                 </div>
             </div>
             <div class="chat-output" id="chatOutput">
@@ -30,6 +46,22 @@
             </div>
         </div>
     </div>
+    
+    <!-- Repositories Modal -->
+    <div id="repositoriesModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Available Repositories</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div id="repositoriesList" class="repositories-list">
+                    <!-- Repository items will be dynamically added here -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <script src="/socket.io/socket.io.js"></script>
     <script src="/app.js"></script>
 </body>

@@ -18,9 +18,23 @@ socket.on('connect_error', (error) => {
     }
 });
 
+// Handle socket reconnection - rejoin conversation if we have one
+socket.on('connect', () => {
+    console.log('Socket connected');
+    if (conversationId) {
+        console.log('Rejoining conversation:', conversationId);
+        socket.emit('joinConversation', conversationId);
+    }
+});
+
 const chatOutput = document.getElementById('chatOutput');
 const chatInput = document.getElementById('chatInput');
 const sendButton = document.getElementById('sendButton');
+const workingDirectoryInput = document.getElementById('workingDirectory');
+const setDirectoryButton = document.getElementById('setDirectoryButton');
+const repositoryDropdown = document.getElementById('repositoryDropdown');
+const projectNameInput = document.getElementById('projectName');
+const cloneRepoButton = document.getElementById('cloneRepoButton');
 
 let isProcessing = false;
 let currentMessages = [];
@@ -61,6 +75,11 @@ async function loadConversation(id) {
             const conversation = await response.json();
             conversationId = id;
             socket.emit('joinConversation', conversationId);
+            
+            // Set working directory if available
+            if (conversation.workingDirectory) {
+                workingDirectoryInput.value = conversation.workingDirectory;
+            }
             
             // Clear chat and display conversation history
             chatOutput.innerHTML = '';
@@ -341,6 +360,32 @@ function addMessage(content, className = 'claude-message') {
     return messageDiv;
 }
 
+// Generate project name from prompt
+function generateProjectName(prompt) {
+    // Extract key words from prompt
+    const stopWords = ['create', 'build', 'make', 'develop', 'help', 'with', 'that', 'this', 
+                      'please', 'could', 'would', 'should', 'need', 'want', 'like', 'from',
+                      'using', 'based', 'simple', 'basic', 'new', 'app', 'application'];
+    
+    const words = prompt.toLowerCase()
+        .replace(/[^a-z0-9\s]/g, '') // Remove special chars
+        .split(/\s+/)
+        .filter(word => word.length > 2) // Keep meaningful words
+        .filter(word => !stopWords.includes(word));
+    
+    // Take first 2-3 meaningful words
+    const projectWords = words.slice(0, 2);
+    
+    // If no meaningful words, use timestamp
+    if (projectWords.length === 0) {
+        return `project-${new Date().getTime()}`;
+    }
+    
+    // Join words and add short timestamp for uniqueness (last 6 digits)
+    const timestamp = new Date().getTime().toString().slice(-6);
+    return projectWords.join('-') + '-' + timestamp;
+}
+
 function sendPrompt() {
     const prompt = chatInput.value.trim();
     if (!prompt || isProcessing) return;
@@ -351,8 +396,44 @@ function sendPrompt() {
         welcomeMsg.remove();
     }
 
-    // Create new conversation if needed
-    if (!conversationId) {
+    // Check if this is a new conversation and we have a selected repository
+    const selectedRepo = repositoryDropdown.value;
+    const isNewConversation = !conversationId;
+    
+    if (isNewConversation && selectedRepo) {
+        // Generate project name from prompt
+        const projectName = generateProjectName(prompt);
+        
+        // Set processing state
+        isProcessing = true;
+        isWaitingResponse = true;
+        chatInput.disabled = true;
+        updateSendButton();
+        
+        // Clear input
+        chatInput.value = '';
+        
+        // Create new conversation first
+        socket.emit('createConversation', (newConversationId) => {
+            conversationId = newConversationId;
+            // Update URL without page reload
+            window.history.pushState({}, '', `/c/${conversationId}`);
+            
+            // Show cloning message
+            addMessage(`Creating new project "${projectName}" from repository "${selectedRepo}"...`, 'system');
+            
+            // Clone repository with generated project name
+            socket.emit('cloneRepository', {
+                conversationId: conversationId,
+                repository: selectedRepo,
+                projectName: projectName
+            });
+            
+            // Store the prompt to send after cloning
+            window.pendingPrompt = prompt;
+        });
+    } else if (!conversationId) {
+        // Create new conversation without cloning
         socket.emit('createConversation', (newConversationId) => {
             conversationId = newConversationId;
             // Update URL without page reload
@@ -453,7 +534,24 @@ socket.on('output', (data) => {
 
 // Handle errors
 socket.on('error', (error) => {
-    addMessage(`Error: ${error}`, 'error-message');
+    console.error('Socket error received:', error);
+    // Handle error object from cloning
+    if (error && error.message) {
+        addMessage(error.message, 'error-message');
+    } else if (error === 'No conversation ID set') {
+        addMessage('Connection lost. Reconnecting...', 'error-message');
+        // Try to rejoin the conversation
+        if (conversationId) {
+            socket.emit('joinConversation', conversationId);
+            // Retry sending the last message if there was one
+            setTimeout(() => {
+                addMessage('Reconnected. Please try sending your message again.', 'system-message');
+            }, 100);
+        }
+    } else {
+        addMessage(`Error: ${error}`, 'error-message');
+    }
+    
     isProcessing = false;
     isWaitingResponse = false;
     chatInput.disabled = false;
@@ -467,6 +565,46 @@ socket.on('complete', (code) => {
     chatInput.disabled = false;
     updateSendButton();
     chatInput.focus();
+});
+
+// Handle repository cloned event
+socket.on('repositoryCloned', ({ repository, projectName, path }) => {
+    // Update working directory after successful cloning
+    const projectPath = `./projects/${projectName}`;
+    workingDirectoryInput.value = projectPath;
+    
+    // Set working directory for the conversation
+    socket.emit('setWorkingDirectory', {
+        conversationId,
+        workingDirectory: projectPath
+    }, (response) => {
+        if (response.error) {
+            console.error('Error setting working directory:', response.error);
+            addMessage(`Error setting working directory: ${response.error}`, 'error');
+            // Re-enable input on error
+            isProcessing = false;
+            isWaitingResponse = false;
+            chatInput.disabled = false;
+            updateSendButton();
+        } else {
+            addMessage(`Repository "${repository}" successfully cloned to "${projectPath}". Working directory updated.`, 'system');
+            
+            // Send the pending prompt after successful cloning and directory setup
+            if (window.pendingPrompt) {
+                const prompt = window.pendingPrompt;
+                window.pendingPrompt = null; // Clear pending prompt
+                
+                // Send the prompt to Claude
+                sendPromptToServer(prompt);
+            } else {
+                // Re-enable input if no pending prompt
+                isProcessing = false;
+                isWaitingResponse = false;
+                chatInput.disabled = false;
+                updateSendButton();
+            }
+        }
+    });
 });
 
 // Function to update send/stop button
@@ -545,8 +683,311 @@ logoutButton.addEventListener('click', async () => {
     }
 });
 
+// Working directory button
+setDirectoryButton.addEventListener('click', async () => {
+    const newDirectory = workingDirectoryInput.value.trim();
+    if (!newDirectory) {
+        alert('Please enter a directory path');
+        return;
+    }
+    
+    if (!conversationId) {
+        // Create conversation first if it doesn't exist
+        socket.emit('createConversation', (newConversationId) => {
+            conversationId = newConversationId;
+            window.history.pushState({}, '', `/c/${conversationId}`);
+            setWorkingDirectory(newDirectory);
+        });
+    } else {
+        setWorkingDirectory(newDirectory);
+    }
+});
+
+// Function to set working directory
+function setWorkingDirectory(directory) {
+    socket.emit('setWorkingDirectory', { 
+        conversationId, 
+        workingDirectory: directory 
+    }, (response) => {
+        if (response.error) {
+            alert(`Error: ${response.error}`);
+        } else {
+            // Show success message
+            const systemMessage = document.createElement('div');
+            systemMessage.className = 'message system-message';
+            const action = response.created ? 'created and set to' : 'set to';
+            systemMessage.innerHTML = `<strong>System:</strong> Working directory ${action}: ${escapeHtml(response.workingDirectory)}`;
+            chatOutput.appendChild(systemMessage);
+            chatOutput.scrollTop = chatOutput.scrollHeight;
+        }
+    });
+}
+
+// Load repositories on page load
+async function loadRepositories() {
+    try {
+        const response = await fetch('/api/repositories', {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        
+        if (!response.ok) throw new Error('Failed to load repositories');
+        
+        const data = await response.json();
+        const { repositories } = data;
+        
+        // Clear existing options
+        repositoryDropdown.innerHTML = '<option value="">Select a repository...</option>';
+        
+        // Add repository options
+        repositories.forEach(repo => {
+            const option = document.createElement('option');
+            option.value = repo.name || repo; // Handle both old and new format
+            option.textContent = repo.name || repo;
+            repositoryDropdown.appendChild(option);
+        });
+        
+        // Restore preferred repository if saved
+        const preferredRepo = localStorage.getItem('preferredRepository');
+        if (preferredRepo && repositories.some(repo => (repo.name || repo) === preferredRepo)) {
+            repositoryDropdown.value = preferredRepo;
+        }
+    } catch (error) {
+        console.error('Error loading repositories:', error);
+    }
+}
+
+// Handle clone repository button
+cloneRepoButton.addEventListener('click', async () => {
+    const selectedRepo = repositoryDropdown.value;
+    const projectName = projectNameInput.value.trim();
+    
+    if (!selectedRepo) {
+        alert('Please select a repository');
+        return;
+    }
+    
+    // Save selected repository as preferred choice
+    localStorage.setItem('preferredRepository', selectedRepo);
+    
+    if (!projectName) {
+        alert('Please enter a project name');
+        return;
+    }
+    
+    const projectPath = `./projects/${projectName}`;
+    
+    // Function to clone the repository
+    const cloneRepo = (convId) => {
+        socket.emit('cloneRepository', {
+            conversationId: convId,
+            repository: selectedRepo,
+            projectName: projectName
+        });
+        
+        // Also update the working directory
+        socket.emit('setWorkingDirectory', {
+            conversationId: convId,
+            workingDirectory: projectPath
+        });
+        
+        // Update the working directory input
+        workingDirectoryInput.value = projectPath;
+        
+        // Clear the form
+        repositoryDropdown.value = '';
+        projectNameInput.value = '';
+        
+        // Show cloning message
+        addMessage(`Cloning repository "${selectedRepo}" to "${projectPath}"...`, 'system');
+    };
+    
+    if (!conversationId) {
+        // Create new conversation if it doesn't exist
+        socket.emit('createConversation', (newConversationId) => {
+            conversationId = newConversationId;
+            window.history.pushState({}, '', `/c/${conversationId}`);
+            cloneRepo(conversationId);
+        });
+    } else {
+        cloneRepo(conversationId);
+    }
+});
+
+// Repositories modal functionality
+const repositoriesModal = document.getElementById('repositoriesModal');
+const showRepositoriesButton = document.getElementById('showRepositoriesButton');
+const closeModal = document.querySelector('.close');
+const repositoriesList = document.getElementById('repositoriesList');
+
+// Show repositories modal
+showRepositoriesButton.addEventListener('click', async () => {
+    try {
+        // Load both repositories and projects in parallel
+        const [repoResponse, projectsResponse] = await Promise.all([
+            fetch('/api/repositories', {
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            }),
+            fetch('/api/projects', {
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            })
+        ]);
+        
+        if (!repoResponse.ok || !projectsResponse.ok) {
+            throw new Error('Failed to load data');
+        }
+        
+        const repoData = await repoResponse.json();
+        const projectsData = await projectsResponse.json();
+        const { repositories } = repoData;
+        const { projects } = projectsData;
+        
+        // Clear existing list
+        repositoriesList.innerHTML = '';
+        
+        // Add repositories section
+        if (repositories.length > 0) {
+            const repoSection = document.createElement('div');
+            repoSection.innerHTML = '<h4 style="color: #c9d1d9; margin-bottom: 12px;">Available Repositories</h4>';
+            repositoriesList.appendChild(repoSection);
+            
+            repositories.forEach(repo => {
+                const repoName = repo.name || repo;
+                const lastModified = repo.lastModified ? new Date(repo.lastModified).toLocaleDateString() : '';
+                
+                const repoItem = document.createElement('div');
+                repoItem.className = 'repository-item';
+                repoItem.innerHTML = `
+                    <div class="repository-name">${repoName}</div>
+                    <div class="repository-path">./repositories/${repoName}</div>
+                    ${lastModified ? `<div style="color: #8b949e; font-size: 12px; margin-top: 4px;">Last modified: ${lastModified}</div>` : ''}
+                `;
+                
+                // Click to open repository session
+                repoItem.addEventListener('click', () => {
+                    // Close modal
+                    repositoriesModal.style.display = 'none';
+                    
+                    // Clear current conversation
+                    chatHistory.innerHTML = '';
+                    conversationId = null;
+                    
+                    // Set working directory to repository path
+                    const repoPath = `./repositories/${repoName}`;
+                    workingDirectoryInput.value = repoPath;
+                    
+                    // Create new conversation for this repository
+                    socket.emit('createConversation', (newConversationId) => {
+                        conversationId = newConversationId;
+                        window.history.pushState({}, '', `/c/${conversationId}`);
+                        
+                        // Set working directory for the conversation
+                        socket.emit('setWorkingDirectory', {
+                            conversationId,
+                            workingDirectory: repoPath
+                        });
+                        
+                        // Send initial prompt to open the project
+                        const prompt = `./repositories/${repoName}/claude`;
+                        userInput.value = prompt;
+                        sendPrompt();
+                    });
+                });
+                
+                repositoriesList.appendChild(repoItem);
+            });
+        }
+        
+        // Add projects section
+        if (projects.length > 0) {
+            const projectSection = document.createElement('div');
+            projectSection.innerHTML = '<h4 style="color: #c9d1d9; margin-top: 24px; margin-bottom: 12px;">Your Projects</h4>';
+            repositoriesList.appendChild(projectSection);
+            
+            projects.forEach(project => {
+                const projectName = project.name || project;
+                const lastModified = project.lastModified ? new Date(project.lastModified).toLocaleDateString() : '';
+                
+                const projectItem = document.createElement('div');
+                projectItem.className = 'repository-item';
+                projectItem.innerHTML = `
+                    <div class="repository-name">${projectName}</div>
+                    <div class="repository-path">./projects/${projectName}</div>
+                    ${lastModified ? `<div style="color: #8b949e; font-size: 12px; margin-top: 4px;">Last modified: ${lastModified}</div>` : ''}
+                `;
+                
+                // Click to open project session
+                projectItem.addEventListener('click', () => {
+                    // Close modal
+                    repositoriesModal.style.display = 'none';
+                    
+                    // Clear current conversation
+                    chatHistory.innerHTML = '';
+                    conversationId = null;
+                    
+                    // Set working directory to project path
+                    const projectPath = project.path || `./projects/${projectName}`;
+                    workingDirectoryInput.value = projectPath;
+                    
+                    // Create new conversation for this project
+                    socket.emit('createConversation', (newConversationId) => {
+                        conversationId = newConversationId;
+                        window.history.pushState({}, '', `/c/${conversationId}`);
+                        
+                        // Set working directory for the conversation
+                        socket.emit('setWorkingDirectory', {
+                            conversationId,
+                            workingDirectory: projectPath
+                        });
+                        
+                        // Send initial prompt to open the project
+                        const prompt = `${projectPath}/claude`;
+                        userInput.value = prompt;
+                        sendPrompt();
+                    });
+                });
+                
+                repositoriesList.appendChild(projectItem);
+            });
+        }
+        
+        // Show empty state if no repositories or projects
+        if (repositories.length === 0 && projects.length === 0) {
+            repositoriesList.innerHTML = '<p style="color: #8b949e; text-align: center;">No repositories or projects found</p>';
+        }
+        
+        // Show modal
+        repositoriesModal.style.display = 'block';
+    } catch (error) {
+        console.error('Error loading repositories:', error);
+        addMessage('Failed to load repositories', 'error');
+    }
+});
+
+// Close modal when clicking X
+closeModal.addEventListener('click', () => {
+    repositoriesModal.style.display = 'none';
+});
+
+// Close modal when clicking outside
+window.addEventListener('click', (event) => {
+    if (event.target === repositoriesModal) {
+        repositoriesModal.style.display = 'none';
+    }
+});
+
+// Save repository selection when dropdown changes
+repositoryDropdown.addEventListener('change', () => {
+    const selectedRepo = repositoryDropdown.value;
+    if (selectedRepo) {
+        localStorage.setItem('preferredRepository', selectedRepo);
+    }
+});
+
 // Initialize conversation on load
 initializeConversation();
+loadRepositories();
 
 // Focus input on load
 chatInput.focus();
