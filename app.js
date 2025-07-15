@@ -78,10 +78,40 @@ function showWelcomeMessage() {
     const welcomeDiv = document.createElement('div');
     welcomeDiv.className = 'welcome-message';
     welcomeDiv.innerHTML = `
-        <h3>Welcome to Claude UI! 👋</h3>
-        <p>Start a conversation by typing a message below.</p>
+        <h3>Welcome to Claude Chat! 👋</h3>
+        <p>Start a conversation with Claude by typing a message below.</p>
+        
+        <div class="sample-commands">
+            <p><strong>Sample commands to try:</strong></p>
+            <div class="command-example" data-command="review and fix active PR's">
+                <div class="command-text">review and fix active PR's</div>
+                <p class="command-description">Claude will check your repository for open pull requests and help review them</p>
+            </div>
+            <div class="command-example" data-command="check that all english text is translated">
+                <div class="command-text">check that all english text is translated</div>
+                <p class="command-description">Claude will scan your codebase for untranslated strings and help identify missing translations</p>
+            </div>
+            <div class="command-example" data-command="find and fix any TODO comments in the code">
+                <div class="command-text">find and fix any TODO comments in the code</div>
+                <p class="command-description">Claude will search for TODO comments and help implement them</p>
+            </div>
+            <div class="command-example" data-command="analyze the project structure and suggest improvements">
+                <div class="command-text">analyze the project structure and suggest improvements</div>
+                <p class="command-description">Claude will review your project organization and recommend best practices</p>
+            </div>
+        </div>
     `;
     chatOutput.appendChild(welcomeDiv);
+    
+    // Make command examples clickable
+    const commandExamples = welcomeDiv.querySelectorAll('.command-example');
+    commandExamples.forEach(example => {
+        example.addEventListener('click', () => {
+            const command = example.getAttribute('data-command');
+            chatInput.value = command;
+            chatInput.focus();
+        });
+    });
 }
 
 function addMessage(content, className = 'claude-message') {

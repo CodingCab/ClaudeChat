@@ -15,16 +15,26 @@
             </div>
             <div class="chat-output" id="chatOutput">
                 <div class="welcome-message">
-                    <p>Welcome! Type your prompt below to chat with Claude.</p>
-                    <div class="sample-command">
-                        <p>Sample command:</p>
-                        <pre><code>claude "ask me yes/no question" --print --output-format stream-json --verbose</code></pre>
-                        <div class="command-output">
-                            <p>Output:</p>
-                            <pre>{
-  "type": "text",
-  "text": "Would you like me to help you with a programming task today?"
-}</pre>
+                    <h3>Welcome to Claude Chat! 👋</h3>
+                    <p>Start a conversation with Claude by typing a message below.</p>
+                    
+                    <div class="sample-commands">
+                        <p><strong>Sample commands to try:</strong></p>
+                        <div class="command-example">
+                            <div class="command-text">review and fix active PR's</div>
+                            <p class="command-description">Claude will check your repository for open pull requests and help review them</p>
+                        </div>
+                        <div class="command-example">
+                            <div class="command-text">check that all english text is translated</div>
+                            <p class="command-description">Claude will scan your codebase for untranslated strings and help identify missing translations</p>
+                        </div>
+                        <div class="command-example">
+                            <div class="command-text">find and fix any TODO comments in the code</div>
+                            <p class="command-description">Claude will search for TODO comments and help implement them</p>
+                        </div>
+                        <div class="command-example">
+                            <div class="command-text">analyze the project structure and suggest improvements</div>
+                            <p class="command-description">Claude will review your project organization and recommend best practices</p>
                         </div>
                     </div>
                 </div>
