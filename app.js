@@ -33,6 +33,8 @@ const sendButton = document.getElementById('sendButton');
 const workingDirectoryInput = document.getElementById('workingDirectory');
 const setDirectoryButton = document.getElementById('setDirectoryButton');
 const repositoryDropdown = document.getElementById('repositoryDropdown');
+const branchDropdown = document.getElementById('branchDropdown');
+const branchLabel = document.getElementById('branchLabel');
 const projectNameInput = document.getElementById('projectName');
 const cloneRepoButton = document.getElementById('cloneRepoButton');
 
@@ -40,6 +42,7 @@ let isProcessing = false;
 let currentMessages = [];
 let conversationId = null;
 let isWaitingResponse = false; // Track if we're waiting for Claude's response
+let repositoriesData = {}; // Store repository data including branches
 
 // Helper function to escape HTML
 function escapeHtml(text) {
@@ -743,24 +746,106 @@ async function loadRepositories() {
         const data = await response.json();
         const { repositories } = data;
         
+        // Store repository data
+        repositoriesData = {};
+        repositories.forEach(repo => {
+            repositoriesData[repo.name] = repo;
+        });
+        
         // Clear existing options
         repositoryDropdown.innerHTML = '<option value="">Select a repository...</option>';
         
         // Add repository options
         repositories.forEach(repo => {
             const option = document.createElement('option');
-            option.value = repo.name || repo; // Handle both old and new format
-            option.textContent = repo.name || repo;
+            option.value = repo.name;
+            option.textContent = repo.name;
             repositoryDropdown.appendChild(option);
         });
         
         // Restore preferred repository if saved
         const preferredRepo = localStorage.getItem('preferredRepository');
-        if (preferredRepo && repositories.some(repo => (repo.name || repo) === preferredRepo)) {
+        if (preferredRepo && repositories.some(repo => repo.name === preferredRepo)) {
             repositoryDropdown.value = preferredRepo;
+            // Load branches for the preferred repository
+            loadBranches(preferredRepo);
         }
     } catch (error) {
         console.error('Error loading repositories:', error);
+    }
+}
+
+// Load branches for selected repository
+function loadBranches(repoName) {
+    const repo = repositoriesData[repoName];
+    if (!repo || !repo.branches) {
+        // Hide branch dropdown if no branches
+        branchDropdown.style.display = 'none';
+        branchLabel.style.display = 'none';
+        return;
+    }
+    
+    // Clear existing options
+    branchDropdown.innerHTML = '<option value="">Select a branch...</option>';
+    
+    // Add branch options
+    repo.branches.forEach(branch => {
+        const option = document.createElement('option');
+        option.value = branch;
+        option.textContent = branch;
+        if (branch === repo.currentBranch) {
+            option.textContent += ' (current)';
+        }
+        branchDropdown.appendChild(option);
+    });
+    
+    // Select current branch by default
+    if (repo.currentBranch) {
+        branchDropdown.value = repo.currentBranch;
+    }
+    
+    // Show branch dropdown
+    branchDropdown.style.display = 'inline-block';
+    branchLabel.style.display = 'inline-block';
+    
+    // Restore preferred branch if saved
+    const preferredBranch = localStorage.getItem(`preferredBranch_${repoName}`);
+    if (preferredBranch && repo.branches.includes(preferredBranch)) {
+        branchDropdown.value = preferredBranch;
+        // Switch to preferred branch if different from current
+        if (preferredBranch !== repo.currentBranch) {
+            switchBranch(repoName, preferredBranch);
+        }
+    }
+}
+
+// Switch branch in repository
+async function switchBranch(repoName, branchName) {
+    try {
+        const response = await fetch(`/api/repositories/${encodeURIComponent(repoName)}/switch-branch`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ branch: branchName })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to switch branch');
+        }
+        
+        const result = await response.json();
+        console.log(result.message);
+        
+        // Update current branch in local data
+        if (repositoriesData[repoName]) {
+            repositoriesData[repoName].currentBranch = branchName;
+        }
+    } catch (error) {
+        console.error('Error switching branch:', error);
+        alert(`Failed to switch branch: ${error.message}`);
     }
 }
 
@@ -786,10 +871,12 @@ cloneRepoButton.addEventListener('click', async () => {
     
     // Function to clone the repository
     const cloneRepo = (convId) => {
+        const selectedBranch = branchDropdown.value;
         socket.emit('cloneRepository', {
             conversationId: convId,
             repository: selectedRepo,
-            projectName: projectName
+            projectName: projectName,
+            branch: selectedBranch || null
         });
         
         // Also update the working directory
@@ -1001,6 +1088,22 @@ repositoryDropdown.addEventListener('change', () => {
     const selectedRepo = repositoryDropdown.value;
     if (selectedRepo) {
         localStorage.setItem('preferredRepository', selectedRepo);
+        loadBranches(selectedRepo);
+    } else {
+        // Hide branch dropdown if no repository selected
+        branchDropdown.style.display = 'none';
+        branchLabel.style.display = 'none';
+    }
+});
+
+// Handle branch dropdown change
+branchDropdown.addEventListener('change', () => {
+    const selectedRepo = repositoryDropdown.value;
+    const selectedBranch = branchDropdown.value;
+    
+    if (selectedRepo && selectedBranch) {
+        localStorage.setItem(`preferredBranch_${selectedRepo}`, selectedBranch);
+        switchBranch(selectedRepo, selectedBranch);
     }
 });
 

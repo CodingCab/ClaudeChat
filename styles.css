@@ -161,6 +161,23 @@ body {
     border-color: #58a6ff;
 }
 
+.branch-dropdown {
+    background-color: #010409;
+    color: #e6edf3;
+    border: 1px solid #30363d;
+    padding: 6px 12px;
+    border-radius: 2px;
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    min-width: 150px;
+}
+
+.branch-dropdown:focus {
+    outline: none;
+    border-color: #58a6ff;
+}
+
 .project-name-input {
     background-color: #010409;
     color: #e6edf3;

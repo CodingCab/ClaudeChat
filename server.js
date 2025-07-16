@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs').promises;
@@ -193,10 +193,41 @@ app.get('/api/repositories', requireAuth, async (req, res) => {
             const fullPath = path.join(repoPath, repo);
             const stat = await fs.stat(fullPath);
             if (stat.isDirectory()) {
+                // Get branches for this repository
+                let branches = [];
+                let currentBranch = null;
+                
+                try {
+                    // Check if it's a git repository
+                    const gitPath = path.join(fullPath, '.git');
+                    if (existsSync(gitPath)) {
+                        // Get all branches
+                        const branchOutput = execSync('git branch -a', { cwd: fullPath, encoding: 'utf8' });
+                        branches = branchOutput.split('\n')
+                            .filter(branch => branch.trim())
+                            .map(branch => {
+                                const isActive = branch.startsWith('*');
+                                const branchName = branch.replace(/^\*?\s+/, '').replace(/^remotes\/origin\//, '');
+                                if (isActive) {
+                                    currentBranch = branchName;
+                                }
+                                return branchName;
+                            })
+                            .filter((branch, index, self) => 
+                                self.indexOf(branch) === index && // Remove duplicates
+                                !branch.includes('HEAD') // Remove HEAD references
+                            );
+                    }
+                } catch (error) {
+                    console.warn(`Failed to get branches for ${repo}:`, error.message);
+                }
+                
                 repoList.push({
                     name: repo,
                     path: fullPath,
-                    lastModified: stat.mtime
+                    lastModified: stat.mtime,
+                    branches: branches,
+                    currentBranch: currentBranch
                 });
             }
         }
@@ -208,6 +239,43 @@ app.get('/api/repositories', requireAuth, async (req, res) => {
     } catch (error) {
         console.error('Failed to list repositories:', error);
         res.status(500).json({ error: 'Failed to list repositories' });
+    }
+});
+
+// API endpoint to switch branch in repository
+app.post('/api/repositories/:repo/switch-branch', requireAuth, async (req, res) => {
+    try {
+        const { repo } = req.params;
+        const { branch } = req.body;
+        
+        if (!repo || !branch) {
+            return res.status(400).json({ error: 'Repository and branch are required' });
+        }
+        
+        const repoPath = path.join(__dirname, 'repositories', repo);
+        
+        if (!existsSync(repoPath)) {
+            return res.status(404).json({ error: 'Repository not found' });
+        }
+        
+        // Switch to the specified branch
+        try {
+            execSync(`git checkout ${branch}`, { cwd: repoPath, encoding: 'utf8' });
+            res.json({ success: true, message: `Switched to branch ${branch}` });
+        } catch (error) {
+            // If checkout fails, try fetching and then checking out
+            try {
+                execSync('git fetch origin', { cwd: repoPath, encoding: 'utf8' });
+                execSync(`git checkout ${branch}`, { cwd: repoPath, encoding: 'utf8' });
+                res.json({ success: true, message: `Switched to branch ${branch}` });
+            } catch (fetchError) {
+                console.error('Failed to switch branch:', fetchError);
+                res.status(500).json({ error: `Failed to switch to branch ${branch}: ${fetchError.message}` });
+            }
+        }
+    } catch (error) {
+        console.error('Failed to switch branch:', error);
+        res.status(500).json({ error: 'Failed to switch branch' });
     }
 });
 
@@ -299,7 +367,7 @@ io.on('connection', (socket) => {
     });
 
     // Handle cloning repository
-    socket.on('cloneRepository', async ({ conversationId, repository, projectName }) => {
+    socket.on('cloneRepository', async ({ conversationId, repository, projectName, branch }) => {
         try {
             const sourcePath = path.join(__dirname, 'repositories', repository);
             const destPath = path.join(__dirname, 'projects', projectName);
@@ -335,12 +403,31 @@ io.on('connection', (socket) => {
                 }
                 
                 console.log(`Cloned repository "${repository}" to "${destPath}"`);
-                console.log(`stdout: ${stdout}`);
-                socket.emit('repositoryCloned', {
-                    repository,
-                    projectName,
-                    path: destPath
-                });
+                
+                // If a branch was specified, checkout that branch
+                if (branch) {
+                    exec(`cd "${destPath}" && git checkout ${branch}`, (branchError, branchStdout, branchStderr) => {
+                        if (branchError) {
+                            console.warn(`Warning: Failed to checkout branch ${branch}: ${branchError.message}`);
+                            // Don't fail the clone operation, just warn
+                        } else {
+                            console.log(`Checked out branch "${branch}" in ${destPath}`);
+                        }
+                        
+                        socket.emit('repositoryCloned', {
+                            repository,
+                            projectName,
+                            path: destPath,
+                            branch: branch
+                        });
+                    });
+                } else {
+                    socket.emit('repositoryCloned', {
+                        repository,
+                        projectName,
+                        path: destPath
+                    });
+                }
             });
         } catch (error) {
             console.error('Error in cloneRepository:', error);
