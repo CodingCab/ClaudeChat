@@ -58,12 +58,22 @@ function requireAuth(req, res, next) {
     const token = req.cookies.authToken || req.headers.authorization?.split(' ')[1];
     
     if (!token) {
-        return res.status(401).json({ error: 'Authentication required' });
+        // Check if this is an API request or a page request
+        if (req.path.startsWith('/api/') || req.headers['content-type'] === 'application/json') {
+            return res.status(401).json({ error: 'Authentication required' });
+        }
+        // Redirect to login page for HTML requests
+        return res.redirect('/login');
     }
     
     const decoded = verifyToken(token);
     if (!decoded) {
-        return res.status(401).json({ error: 'Invalid or expired token' });
+        // Check if this is an API request or a page request
+        if (req.path.startsWith('/api/') || req.headers['content-type'] === 'application/json') {
+            return res.status(401).json({ error: 'Invalid or expired token' });
+        }
+        // Redirect to login page for HTML requests
+        return res.redirect('/login');
     }
     
     req.user = decoded;

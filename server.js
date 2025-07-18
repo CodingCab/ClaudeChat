@@ -176,6 +176,27 @@ app.post('/api/commands', requireAuth, async (req, res) => {
     }
 });
 
+// API endpoints for system prompts
+app.get('/api/system-prompts', requireAuth, async (req, res) => {
+    try {
+        const promptsData = await fs.readFile(path.join(__dirname, 'systemPrompts.json'), 'utf-8');
+        res.json(JSON.parse(promptsData));
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to load system prompts' });
+    }
+});
+
+app.post('/api/system-prompts', requireAuth, async (req, res) => {
+    try {
+        const { activePrompt, savedPrompts } = req.body;
+        const promptsPath = path.join(__dirname, 'systemPrompts.json');
+        await fs.writeFile(promptsPath, JSON.stringify({ activePrompt, savedPrompts }, null, 2));
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to save system prompts' });
+    }
+});
+
 // API endpoint to list repositories
 app.get('/api/repositories', requireAuth, async (req, res) => {
     try {
@@ -201,22 +222,38 @@ app.get('/api/repositories', requireAuth, async (req, res) => {
                     // Check if it's a git repository
                     const gitPath = path.join(fullPath, '.git');
                     if (existsSync(gitPath)) {
+                        // Fetch latest remote branches
+                        try {
+                            execSync('git fetch --prune', { cwd: fullPath, encoding: 'utf8' });
+                        } catch (fetchError) {
+                            console.warn(`Failed to fetch remote branches for ${repo}:`, fetchError.message);
+                        }
+                        
                         // Get all branches
                         const branchOutput = execSync('git branch -a', { cwd: fullPath, encoding: 'utf8' });
-                        branches = branchOutput.split('\n')
+                        const branchSet = new Set();
+                        
+                        branchOutput.split('\n')
                             .filter(branch => branch.trim())
-                            .map(branch => {
+                            .forEach(branch => {
                                 const isActive = branch.startsWith('*');
-                                const branchName = branch.replace(/^\*?\s+/, '').replace(/^remotes\/origin\//, '');
-                                if (isActive) {
-                                    currentBranch = branchName;
+                                let branchName = branch.replace(/^\*?\s+/, '');
+                                
+                                // Handle local branches
+                                if (!branchName.startsWith('remotes/')) {
+                                    if (isActive) {
+                                        currentBranch = branchName;
+                                    }
+                                    branchSet.add(branchName);
+                                } 
+                                // Handle remote branches
+                                else if (branchName.startsWith('remotes/origin/') && !branchName.includes('HEAD')) {
+                                    const remoteBranch = branchName.replace('remotes/origin/', '');
+                                    branchSet.add(remoteBranch);
                                 }
-                                return branchName;
-                            })
-                            .filter((branch, index, self) => 
-                                self.indexOf(branch) === index && // Remove duplicates
-                                !branch.includes('HEAD') // Remove HEAD references
-                            );
+                            });
+                        
+                        branches = Array.from(branchSet).sort();
                     }
                 } catch (error) {
                     console.warn(`Failed to get branches for ${repo}:`, error.message);
@@ -260,18 +297,38 @@ app.post('/api/repositories/:repo/switch-branch', requireAuth, async (req, res) 
         
         // Switch to the specified branch
         try {
-            execSync(`git checkout ${branch}`, { cwd: repoPath, encoding: 'utf8' });
+            // Always reset hard before switching branches to ensure clean state
+            execSync('git reset --hard', { cwd: repoPath, encoding: 'utf8' });
+            
+            // Check if branch exists locally
+            const localBranches = execSync('git branch', { cwd: repoPath, encoding: 'utf8' });
+            const hasLocalBranch = localBranches.split('\n').some(b => b.trim().replace('* ', '') === branch);
+            
+            if (hasLocalBranch) {
+                // Branch exists locally, just checkout
+                execSync(`git checkout ${branch}`, { cwd: repoPath, encoding: 'utf8' });
+            } else {
+                // Branch doesn't exist locally, try to create it from remote
+                execSync('git fetch origin', { cwd: repoPath, encoding: 'utf8' });
+                
+                // Check if remote branch exists
+                const remoteBranches = execSync('git branch -r', { cwd: repoPath, encoding: 'utf8' });
+                const hasRemoteBranch = remoteBranches.split('\n').some(b => 
+                    b.trim() === `origin/${branch}` || b.trim().endsWith(`/${branch}`)
+                );
+                
+                if (hasRemoteBranch) {
+                    // Create local branch tracking the remote
+                    execSync(`git checkout -b ${branch} origin/${branch}`, { cwd: repoPath, encoding: 'utf8' });
+                } else {
+                    throw new Error(`Branch ${branch} not found in local or remote`);
+                }
+            }
+            
             res.json({ success: true, message: `Switched to branch ${branch}` });
         } catch (error) {
-            // If checkout fails, try fetching and then checking out
-            try {
-                execSync('git fetch origin', { cwd: repoPath, encoding: 'utf8' });
-                execSync(`git checkout ${branch}`, { cwd: repoPath, encoding: 'utf8' });
-                res.json({ success: true, message: `Switched to branch ${branch}` });
-            } catch (fetchError) {
-                console.error('Failed to switch branch:', fetchError);
-                res.status(500).json({ error: `Failed to switch to branch ${branch}: ${fetchError.message}` });
-            }
+            console.error('Failed to switch branch:', error);
+            res.status(500).json({ error: `Failed to switch to branch ${branch}: ${error.message}` });
         }
     } catch (error) {
         console.error('Failed to switch branch:', error);
@@ -324,11 +381,13 @@ app.use('/styles.css', express.static(path.join(__dirname, 'styles.css')));
 app.use('/app.js', express.static(path.join(__dirname, 'app.js')));
 
 // Protected routes - require authentication
-app.use('/', requireAuth);
-app.use(express.static(__dirname));
-app.get('/c/:id', (req, res) => {
+app.get('/', requireAuth, (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
+app.get('/c/:id', requireAuth, (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+app.use(express.static(__dirname));
 
 // WebSocket connection handling
 io.on('connection', (socket) => {
@@ -370,6 +429,7 @@ io.on('connection', (socket) => {
     socket.on('cloneRepository', async ({ conversationId, repository, projectName, branch }) => {
         try {
             const sourcePath = path.join(__dirname, 'repositories', repository);
+            const hotPath = path.join(__dirname, 'hot', repository);
             const destPath = path.join(__dirname, 'projects', projectName);
             
             // Check if source repository exists
@@ -390,20 +450,79 @@ io.on('connection', (socket) => {
                 mkdirSync(projectsDir, { recursive: true });
             }
             
-            // Copy repository to projects folder
+            // Create hot directory if it doesn't exist
+            const hotDir = path.join(__dirname, 'hot');
+            if (!existsSync(hotDir)) {
+                mkdirSync(hotDir, { recursive: true });
+            }
+            
             const { exec } = require('child_process');
-            exec(`cp -r "${sourcePath}" "${destPath}"`, (error, stdout, stderr) => {
-                if (error) {
-                    console.error(`Error copying repository: ${error}`);
-                    console.error(`stderr: ${stderr}`);
-                    console.error(`Source: ${sourcePath}`);
-                    console.error(`Destination: ${destPath}`);
-                    socket.emit('error', { message: `Failed to clone repository: ${error.message}` });
-                    return;
-                }
+            
+            // Check if we have a hot copy available
+            if (existsSync(hotPath)) {
+                console.log(`Using hot copy of repository "${repository}"...`);
+                
+                // Move hot copy to destination
+                exec(`mv "${hotPath}" "${destPath}"`, (error, stdout, stderr) => {
+                    if (error) {
+                        console.error(`Error moving hot repository: ${error}`);
+                        // Fall back to regular copy
+                        copyFromSource();
+                        return;
+                    }
+                    
+                    console.log(`Moved hot repository "${repository}" to "${destPath}"`);
+                    
+                    // Update the moved repository with git pull
+                    exec(`cd "${destPath}" && git pull`, (pullError) => {
+                        if (pullError) {
+                            console.warn(`Warning: Failed to git pull in ${destPath}: ${pullError.message}`);
+                        }
+                        
+                        handleBranchCheckout();
+                    });
+                    
+                    // Immediately start preparing a new hot copy in the background
+                    prepareHotCopy(repository);
+                });
+            } else {
+                // No hot copy available, use regular copy
+                copyFromSource();
+            }
+            
+            function copyFromSource() {
+                // First, update the source repository with git pull
+                console.log(`Updating repository "${repository}" with git pull...`);
+                exec(`cd "${sourcePath}" && git pull`, (pullError, pullStdout, pullStderr) => {
+                    if (pullError) {
+                        console.warn(`Warning: Failed to git pull in ${sourcePath}: ${pullError.message}`);
+                        // Continue with cloning even if pull fails (repository might not have a remote)
+                    } else {
+                        console.log(`Successfully updated repository "${repository}"`);
+                    }
+                    
+                    // Copy repository to projects folder
+                    exec(`cp -r "${sourcePath}" "${destPath}"`, (error, stdout, stderr) => {
+                    if (error) {
+                        console.error(`Error copying repository: ${error}`);
+                        console.error(`stderr: ${stderr}`);
+                        console.error(`Source: ${sourcePath}`);
+                        console.error(`Destination: ${destPath}`);
+                        socket.emit('error', { message: `Failed to clone repository: ${error.message}` });
+                        return;
+                    }
                 
                 console.log(`Cloned repository "${repository}" to "${destPath}"`);
                 
+                handleBranchCheckout();
+                
+                // Start preparing a hot copy after regular clone
+                prepareHotCopy(repository);
+            });
+            });
+            }
+            
+            function handleBranchCheckout() {
                 // If a branch was specified, checkout that branch
                 if (branch) {
                     exec(`cd "${destPath}" && git checkout ${branch}`, (branchError, branchStdout, branchStderr) => {
@@ -428,7 +547,28 @@ io.on('connection', (socket) => {
                         path: destPath
                     });
                 }
-            });
+            }
+            
+            function prepareHotCopy(repoName) {
+                const sourceRepo = path.join(__dirname, 'repositories', repoName);
+                const hotRepo = path.join(__dirname, 'hot', repoName);
+                
+                // Don't prepare hot copy if it already exists
+                if (existsSync(hotRepo)) {
+                    return;
+                }
+                
+                console.log(`Preparing hot copy of repository "${repoName}" in background...`);
+                
+                // Copy repository to hot folder in background
+                exec(`cp -r "${sourceRepo}" "${hotRepo}"`, (error) => {
+                    if (error) {
+                        console.error(`Failed to prepare hot copy: ${error.message}`);
+                    } else {
+                        console.log(`Hot copy of repository "${repoName}" is ready`);
+                    }
+                });
+            }
         } catch (error) {
             console.error('Error in cloneRepository:', error);
             socket.emit('error', { message: `Failed to clone repository: ${error.message}` });
@@ -488,8 +628,53 @@ io.on('connection', (socket) => {
             const fullPath = path.resolve(process.cwd(), 'projects', folderName);
             
             try {
-                // Create directory if it doesn't exist
-                if (!existsSync(fullPath)) {
+                // Check if this matches a repository name
+                const repositoriesPath = path.join(__dirname, 'repositories');
+                const hotPath = path.join(__dirname, 'hot', folderName);
+                const sourcePath = path.join(repositoriesPath, folderName);
+                
+                if (existsSync(sourcePath) && !existsSync(fullPath)) {
+                    // This is a repository name and project doesn't exist yet
+                    console.log(`Detected repository name "${folderName}", using hot folder system`);
+                    
+                    const { exec } = require('child_process');
+                    
+                    // Check if we have a hot copy available
+                    if (existsSync(hotPath)) {
+                        console.log(`Using hot copy of repository "${folderName}"...`);
+                        
+                        // Move hot copy to destination synchronously
+                        try {
+                            execSync(`mv "${hotPath}" "${fullPath}"`);
+                            console.log(`Moved hot repository "${folderName}" to "${fullPath}"`);
+                            
+                            // Update the moved repository with git pull
+                            try {
+                                execSync(`cd "${fullPath}" && git pull`);
+                            } catch (pullError) {
+                                console.warn(`Warning: Failed to git pull in ${fullPath}: ${pullError.message}`);
+                            }
+                            
+                            socket.emit('output', JSON.stringify({
+                                type: 'system',
+                                message: `Using hot copy of repository: ${fullPath}`
+                            }) + '\n');
+                            
+                            // Immediately start preparing a new hot copy in the background
+                            prepareHotCopy(folderName);
+                        } catch (error) {
+                            console.error(`Error moving hot repository: ${error}`);
+                            // Fall back to regular copy
+                            copyRepositorySync(sourcePath, fullPath);
+                        }
+                    } else {
+                        // No hot copy available, use regular copy
+                        copyRepositorySync(sourcePath, fullPath);
+                        // Start preparing a hot copy after regular clone
+                        prepareHotCopy(folderName);
+                    }
+                } else if (!existsSync(fullPath)) {
+                    // Not a repository, just create directory
                     mkdirSync(fullPath, { recursive: true });
                     console.log(`Created directory in projects folder: ${fullPath}`);
                     socket.emit('output', JSON.stringify({
@@ -509,6 +694,60 @@ io.on('connection', (socket) => {
             }
         }
         
+        // Helper function to copy repository synchronously
+        function copyRepositorySync(source, dest) {
+            try {
+                // First, update the source repository with git pull
+                console.log(`Updating repository with git pull...`);
+                try {
+                    execSync(`cd "${source}" && git pull`);
+                    console.log(`Successfully updated repository`);
+                } catch (pullError) {
+                    console.warn(`Warning: Failed to git pull: ${pullError.message}`);
+                }
+                
+                // Copy repository to projects folder
+                execSync(`cp -r "${source}" "${dest}"`);
+                console.log(`Cloned repository to "${dest}"`);
+                
+                socket.emit('output', JSON.stringify({
+                    type: 'system',
+                    message: `Cloned repository to: ${dest}`
+                }) + '\n');
+            } catch (error) {
+                throw new Error(`Failed to copy repository: ${error.message}`);
+            }
+        }
+        
+        // Helper function to prepare hot copy
+        function prepareHotCopy(repoName) {
+            const sourceRepo = path.join(__dirname, 'repositories', repoName);
+            const hotRepo = path.join(__dirname, 'hot', repoName);
+            
+            // Don't prepare hot copy if it already exists
+            if (existsSync(hotRepo)) {
+                return;
+            }
+            
+            // Create hot directory if it doesn't exist
+            const hotDir = path.join(__dirname, 'hot');
+            if (!existsSync(hotDir)) {
+                mkdirSync(hotDir, { recursive: true });
+            }
+            
+            console.log(`Preparing hot copy of repository "${repoName}" in background...`);
+            
+            // Copy repository to hot folder in background
+            const { exec } = require('child_process');
+            exec(`cp -r "${sourceRepo}" "${hotRepo}"`, (error) => {
+                if (error) {
+                    console.error(`Failed to prepare hot copy: ${error.message}`);
+                } else {
+                    console.log(`Hot copy of repository "${repoName}" is ready`);
+                }
+            });
+        }
+        
         // Build claude command args
         const args = [
             '--print', 
@@ -521,6 +760,19 @@ io.on('connection', (socket) => {
         const claudeSessionId = claudeSessions.get(currentConversationId);
         if (claudeSessionId) {
             args.push('--resume', claudeSessionId);
+        }
+        
+        // Add system prompt if one is active
+        try {
+            const systemPromptsPath = path.join(__dirname, 'systemPrompts.json');
+            if (existsSync(systemPromptsPath)) {
+                const systemPromptsData = JSON.parse(readFileSync(systemPromptsPath, 'utf-8'));
+                if (systemPromptsData.activePrompt) {
+                    args.push('--append-system-prompt', systemPromptsData.activePrompt);
+                }
+            }
+        } catch (error) {
+            console.error('Error loading system prompt:', error);
         }
         
         // Use claude with stdin input which works more reliably

@@ -51,6 +51,27 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// Helper function to handle API requests with authentication
+async function authenticatedFetch(url, options = {}) {
+    const defaultOptions = {
+        headers: {
+            'Authorization': `Bearer ${authToken}`,
+            ...options.headers
+        }
+    };
+    
+    const response = await fetch(url, { ...options, ...defaultOptions });
+    
+    // Check if authentication failed
+    if (response.status === 401) {
+        localStorage.removeItem('authToken');
+        window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+        throw new Error('Authentication required');
+    }
+    
+    return response;
+}
+
 // Initialize conversation
 function initializeConversation() {
     // Check if we're loading an existing conversation
@@ -69,11 +90,7 @@ function initializeConversation() {
 // Load existing conversation
 async function loadConversation(id) {
     try {
-        const response = await fetch(`/api/conversation/${id}`, {
-            headers: {
-                'Authorization': `Bearer ${authToken}`
-            }
-        });
+        const response = await authenticatedFetch(`/api/conversation/${id}`);
         if (response.ok) {
             const conversation = await response.json();
             conversationId = id;
@@ -129,11 +146,7 @@ function displayConversationHistory(conversation) {
 // Load and display commands
 async function loadCommands() {
     try {
-        const response = await fetch('/api/commands', {
-            headers: {
-                'Authorization': `Bearer ${authToken}`
-            }
-        });
+        const response = await authenticatedFetch('/api/commands');
         const data = await response.json();
         return data;
     } catch (error) {
@@ -242,11 +255,10 @@ async function saveCustomCommand(command) {
         const commands = await loadCommands();
         commands.customCommands.push(command);
         
-        await fetch('/api/commands', {
+        await authenticatedFetch('/api/commands', {
             method: 'POST',
             headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${authToken}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ customCommands: commands.customCommands })
         });
@@ -265,11 +277,10 @@ async function deleteCustomCommand(index) {
         const commands = await loadCommands();
         commands.customCommands.splice(index, 1);
         
-        await fetch('/api/commands', {
+        await authenticatedFetch('/api/commands', {
             method: 'POST',
             headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${authToken}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ customCommands: commands.customCommands })
         });
@@ -331,6 +342,37 @@ function addMessage(content, className = 'claude-message') {
         } else if (content.name === 'WebFetch') {
             commandStr = `curl ${content.input.url || ''}`;
             terminalDiv.innerHTML = `<span class="terminal-prompt">$</span> <span class="terminal-cmd">${escapeHtml(commandStr)}</span>`;
+        } else if (content.name === 'TodoWrite') {
+            // Special formatting for TodoWrite
+            terminalDiv.innerHTML = `<span class="terminal-prompt">⚡</span> <span class="terminal-tool">TodoWrite</span>`;
+            
+            if (content.input && content.input.todos) {
+                const todosDiv = document.createElement('div');
+                todosDiv.className = 'todo-list-display';
+                todosDiv.style.cssText = 'margin-top: 8px; padding: 8px 12px; background: rgba(13, 17, 23, 0.6); border-radius: 4px; font-family: monospace; font-size: 12px;';
+                
+                const todos = content.input.todos;
+                const todoLines = todos.map(todo => {
+                    // Status icon
+                    let statusIcon = '';
+                    if (todo.status === 'completed') {
+                        statusIcon = '✓';
+                    } else if (todo.status === 'in_progress') {
+                        statusIcon = '→';
+                    } else {
+                        statusIcon = '·';
+                    }
+                    
+                    // Priority indicator (only for high priority)
+                    const priorityIndicator = todo.priority === 'high' ? '!' : '';
+                    
+                    return `${statusIcon} ${todo.content}${priorityIndicator}`;
+                });
+                
+                todosDiv.innerHTML = `<pre style="margin: 0; color: #8b949e; line-height: 1.4;">${escapeHtml(todoLines.join('\n'))}</pre>`;
+                
+                terminalDiv.appendChild(todosDiv);
+            }
         } else {
             // Generic tool display
             terminalDiv.innerHTML = `<span class="terminal-prompt">⚡</span> <span class="terminal-tool">${escapeHtml(content.name)}</span>`;
@@ -676,10 +718,8 @@ chatLogo.addEventListener('click', () => {
 const logoutButton = document.getElementById('logoutButton');
 logoutButton.addEventListener('click', async () => {
     try {
-        await fetch('/api/logout', { 
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${authToken}`
+        await authenticatedFetch('/api/logout', { 
+            method: 'POST'
             }
         });
         localStorage.removeItem('authToken');
@@ -735,10 +775,7 @@ function setWorkingDirectory(directory) {
 // Load repositories on page load
 async function loadRepositories() {
     try {
-        const response = await fetch('/api/repositories', {
-            headers: {
-                'Authorization': `Bearer ${authToken}`
-            }
+        const response = await authenticatedFetch('/api/repositories', {
         });
         
         if (!response.ok) throw new Error('Failed to load repositories');
@@ -822,10 +859,9 @@ function loadBranches(repoName) {
 // Switch branch in repository
 async function switchBranch(repoName, branchName) {
     try {
-        const response = await fetch(`/api/repositories/${encodeURIComponent(repoName)}/switch-branch`, {
+        const response = await authenticatedFetch(`/api/repositories/${encodeURIComponent(repoName)}/switch-branch`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${authToken}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ branch: branchName })
@@ -919,12 +955,8 @@ showRepositoriesButton.addEventListener('click', async () => {
     try {
         // Load both repositories and projects in parallel
         const [repoResponse, projectsResponse] = await Promise.all([
-            fetch('/api/repositories', {
-                headers: { 'Authorization': `Bearer ${authToken}` }
-            }),
-            fetch('/api/projects', {
-                headers: { 'Authorization': `Bearer ${authToken}` }
-            })
+            authenticatedFetch('/api/repositories'),
+            authenticatedFetch('/api/projects')
         ]);
         
         if (!repoResponse.ok || !projectsResponse.ok) {
@@ -1113,3 +1145,140 @@ loadRepositories();
 
 // Focus input on load
 chatInput.focus();
+
+// System Prompts functionality
+const systemPromptsModal = document.getElementById('systemPromptsModal');
+const systemPromptsButton = document.getElementById('systemPromptsButton');
+const systemPromptInput = document.getElementById('systemPromptInput');
+const setPromptButton = document.getElementById('setPromptButton');
+const savePromptButton = document.getElementById('savePromptButton');
+const clearPromptButton = document.getElementById('clearPromptButton');
+const activePromptDisplay = document.getElementById('activePromptDisplay');
+const savedPromptsList = document.getElementById('savedPromptsList');
+
+let systemPromptsData = { activePrompt: null, savedPrompts: [] };
+
+// Load system prompts
+async function loadSystemPrompts() {
+    try {
+        const response = await authenticatedFetch('/api/system-prompts');
+        if (response.ok) {
+            systemPromptsData = await response.json();
+            updateSystemPromptsUI();
+        }
+    } catch (error) {
+        console.error('Failed to load system prompts:', error);
+    }
+}
+
+// Update UI with current prompts
+function updateSystemPromptsUI() {
+    // Update active prompt display
+    if (systemPromptsData.activePrompt) {
+        activePromptDisplay.innerHTML = `<pre>${escapeHtml(systemPromptsData.activePrompt)}</pre>`;
+    } else {
+        activePromptDisplay.innerHTML = '<p class="no-active-prompt">No active system prompt</p>';
+    }
+    
+    // Update saved prompts list
+    savedPromptsList.innerHTML = '';
+    systemPromptsData.savedPrompts.forEach((prompt, index) => {
+        const promptItem = document.createElement('div');
+        promptItem.className = 'saved-prompt-item';
+        promptItem.innerHTML = `
+            <div class="saved-prompt-text">${escapeHtml(prompt)}</div>
+            <div class="saved-prompt-actions">
+                <button class="use-prompt-btn" data-index="${index}">Use</button>
+                <button class="delete-prompt-btn" data-index="${index}">Delete</button>
+            </div>
+        `;
+        savedPromptsList.appendChild(promptItem);
+    });
+    
+    // Add event listeners to saved prompt buttons
+    document.querySelectorAll('.use-prompt-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const index = parseInt(e.target.dataset.index);
+            systemPromptInput.value = systemPromptsData.savedPrompts[index];
+        });
+    });
+    
+    document.querySelectorAll('.delete-prompt-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const index = parseInt(e.target.dataset.index);
+            systemPromptsData.savedPrompts.splice(index, 1);
+            await saveSystemPrompts();
+            updateSystemPromptsUI();
+        });
+    });
+}
+
+// Save system prompts to server
+async function saveSystemPrompts() {
+    try {
+        const response = await authenticatedFetch('/api/system-prompts', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify(systemPromptsData)
+        });
+        if (!response.ok) {
+            throw new Error('Failed to save system prompts');
+        }
+    } catch (error) {
+        console.error('Failed to save system prompts:', error);
+        alert('Failed to save system prompts');
+    }
+}
+
+// Show system prompts modal
+systemPromptsButton.addEventListener('click', () => {
+    loadSystemPrompts();
+    systemPromptsModal.style.display = 'block';
+});
+
+// Close modal functionality
+const systemPromptsCloseBtn = systemPromptsModal.querySelector('.close');
+systemPromptsCloseBtn.addEventListener('click', () => {
+    systemPromptsModal.style.display = 'none';
+});
+
+// Close modal when clicking outside
+window.addEventListener('click', (event) => {
+    if (event.target === systemPromptsModal) {
+        systemPromptsModal.style.display = 'none';
+    }
+});
+
+// Set active prompt
+setPromptButton.addEventListener('click', async () => {
+    const prompt = systemPromptInput.value.trim();
+    if (prompt) {
+        systemPromptsData.activePrompt = prompt;
+        await saveSystemPrompts();
+        updateSystemPromptsUI();
+        alert('System prompt set successfully!');
+    }
+});
+
+// Save prompt to library
+savePromptButton.addEventListener('click', async () => {
+    const prompt = systemPromptInput.value.trim();
+    if (prompt && !systemPromptsData.savedPrompts.includes(prompt)) {
+        systemPromptsData.savedPrompts.push(prompt);
+        await saveSystemPrompts();
+        updateSystemPromptsUI();
+        alert('Prompt saved to library!');
+    }
+});
+
+// Clear active prompt
+clearPromptButton.addEventListener('click', async () => {
+    systemPromptsData.activePrompt = null;
+    await saveSystemPrompts();
+    updateSystemPromptsUI();
+    systemPromptInput.value = '';
+    alert('Active system prompt cleared!');
+});
