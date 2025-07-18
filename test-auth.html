@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Authentication</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #0d1117;
+            color: #c9d1d9;
+        }
+        button {
+            margin: 10px;
+            padding: 10px;
+            cursor: pointer;
+        }
+        pre {
+            background: #161b22;
+            padding: 10px;
+            border-radius: 6px;
+            overflow: auto;
+        }
+        .error {
+            color: #f85149;
+        }
+        .success {
+            color: #3fb950;
+        }
+    </style>
+</head>
+<body>
+    <h1>Authentication Test</h1>
+    
+    <div>
+        <button onclick="checkToken()">Check Token</button>
+        <button onclick="testAPI('/api/auth/check')">Test Auth Check</button>
+        <button onclick="testAPI('/api/repositories')">Test Repositories</button>
+        <button onclick="testAPI('/api/projects')">Test Projects</button>
+        <button onclick="testAPI('/api/commands')">Test Commands</button>
+        <button onclick="clearToken()">Clear Token</button>
+    </div>
+    
+    <h2>Results:</h2>
+    <pre id="output"></pre>
+    
+    <script>
+        const output = document.getElementById('output');
+        
+        function log(message, isError = false) {
+            const timestamp = new Date().toLocaleTimeString();
+            const className = isError ? 'error' : 'success';
+            output.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+        }
+        
+        function checkToken() {
+            const token = localStorage.getItem('authToken');
+            if (token) {
+                log(`Token found: ${token.substring(0, 20)}...`);
+                // Decode JWT to check expiration
+                try {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    log(`Token payload: ${JSON.stringify(payload, null, 2)}`);
+                    const exp = new Date(payload.exp * 1000);
+                    log(`Token expires: ${exp.toLocaleString()}`);
+                    if (exp < new Date()) {
+                        log('Token is EXPIRED!', true);
+                    }
+                } catch (e) {
+                    log('Failed to decode token', true);
+                }
+            } else {
+                log('No token found in localStorage', true);
+            }
+        }
+        
+        async function testAPI(endpoint) {
+            const token = localStorage.getItem('authToken');
+            log(`Testing ${endpoint}...`);
+            
+            try {
+                const response = await fetch(endpoint, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                log(`Response status: ${response.status} ${response.statusText}`);
+                
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    const data = await response.json();
+                    log(`Response data: ${JSON.stringify(data, null, 2)}`);
+                } else {
+                    const text = await response.text();
+                    log(`Response text: ${text}`);
+                }
+            } catch (error) {
+                log(`Error: ${error.message}`, true);
+            }
+        }
+        
+        function clearToken() {
+            localStorage.removeItem('authToken');
+            log('Token cleared from localStorage');
+        }
+        
+        // Check token on load
+        checkToken();
+    </script>
+</body>
+</html>

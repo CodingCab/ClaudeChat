@@ -34,3 +34,4 @@ supervisor.sock
 # Project folders
 projects/
 repositories/
+hot/

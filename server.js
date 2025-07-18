@@ -10,8 +10,26 @@ const { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } = requ
 const util = require('util');
 const cookieParser = require('cookie-parser');
 const { initializeUsers, authenticateUser, generateToken, requireAuth, socketAuth } = require('./auth');
+const ngrok = require('ngrok');
 
 const app = express();
+app.set('trust proxy', 1); // Trust first proxy (ngrok)
+
+// CORS middleware for ngrok and external access
+app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin) {
+        res.header('Access-Control-Allow-Origin', origin);
+        res.header('Access-Control-Allow-Credentials', 'true');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    }
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
+
 app.use(express.json());
 app.use(cookieParser());
 const httpServer = createServer(app);
@@ -106,9 +124,14 @@ app.post('/api/login', async (req, res) => {
     }
     
     const token = generateToken(user);
+    
+    // Only use secure cookies if actually using HTTPS
+    const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https' || req.protocol === 'https';
+    
     res.cookie('authToken', token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
+        secure: isSecure,
+        sameSite: 'lax',
         maxAge: 24 * 60 * 60 * 1000 // 24 hours
     });
     
@@ -943,6 +966,47 @@ async function killProcessOnPort(port) {
     }
 }
 
+// Start ngrok tunnel
+async function startNgrok(port) {
+    try {
+        // Check if ngrok should be enabled (from env or default to true)
+        const enableNgrok = process.env.ENABLE_NGROK !== 'false';
+        
+        if (!enableNgrok) {
+            console.log('Ngrok is disabled');
+            return null;
+        }
+        
+        // Configure ngrok options
+        const ngrokOptions = {
+            addr: port,
+            proto: 'http',
+            region: process.env.NGROK_REGION || 'us',
+        };
+        
+        // Add authtoken if provided
+        if (process.env.NGROK_AUTHTOKEN) {
+            ngrokOptions.authtoken = process.env.NGROK_AUTHTOKEN;
+        }
+        
+        // Add subdomain if provided (requires paid ngrok account)
+        if (process.env.NGROK_SUBDOMAIN) {
+            ngrokOptions.subdomain = process.env.NGROK_SUBDOMAIN;
+        }
+        
+        // Start ngrok
+        const url = await ngrok.connect(ngrokOptions);
+        console.log(`\n🌍 Ngrok tunnel established: ${url}`);
+        console.log(`   You can access your ClaudeChat instance from anywhere using this URL`);
+        
+        return url;
+    } catch (error) {
+        console.error('Failed to start ngrok:', error.message);
+        console.log('Continuing without ngrok...');
+        return null;
+    }
+}
+
 // Start server with automatic port cleanup
 async function startServer() {
     try {
@@ -953,8 +1017,16 @@ async function startServer() {
         await killProcessOnPort(PORT);
         
         // Start the server
-        httpServer.listen(PORT, () => {
+        httpServer.listen(PORT, async () => {
             console.log(`Server running on http://localhost:${PORT}`);
+            
+            // Start ngrok after server is running
+            const ngrokUrl = await startNgrok(PORT);
+            
+            // Store ngrok URL for potential use in the application
+            if (ngrokUrl) {
+                app.locals.ngrokUrl = ngrokUrl;
+            }
         });
         
         // Handle server errors
@@ -964,8 +1036,16 @@ async function startServer() {
                 await killProcessOnPort(PORT);
                 // Retry starting the server
                 setTimeout(() => {
-                    httpServer.listen(PORT, () => {
+                    httpServer.listen(PORT, async () => {
                         console.log(`Server running on http://localhost:${PORT} (after retry)`);
+                        
+                        // Start ngrok after server is running
+                        const ngrokUrl = await startNgrok(PORT);
+                        
+                        // Store ngrok URL for potential use in the application
+                        if (ngrokUrl) {
+                            app.locals.ngrokUrl = ngrokUrl;
+                        }
                     });
                 }, 1000);
             } else {
@@ -978,6 +1058,32 @@ async function startServer() {
         process.exit(1);
     }
 }
+
+// Handle graceful shutdown
+process.on('SIGINT', async () => {
+    console.log('\nShutting down gracefully...');
+    
+    // Disconnect ngrok
+    try {
+        await ngrok.disconnect();
+        await ngrok.kill();
+        console.log('Ngrok disconnected');
+    } catch (error) {
+        console.error('Error disconnecting ngrok:', error.message);
+    }
+    
+    // Close server
+    httpServer.close(() => {
+        console.log('Server closed');
+        process.exit(0);
+    });
+    
+    // Force exit after 5 seconds
+    setTimeout(() => {
+        console.error('Forced shutdown');
+        process.exit(1);
+    }, 5000);
+});
 
 // Load persisted data and start server
 loadPersistedData();
