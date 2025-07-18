@@ -679,21 +679,24 @@ function stopPrompt() {
 }
 
 // Event listeners
-sendButton.addEventListener('click', () => {
+if (sendButton) {
+    sendButton.addEventListener('click', () => {
     if (isWaitingResponse) {
         stopPrompt();
     } else {
         sendPrompt();
     }
-});
+    });
+}
 
-chatInput.addEventListener('input', () => {
+if (chatInput) {
+    chatInput.addEventListener('input', () => {
     if (!isWaitingResponse) {
         updateSendButton();
     }
-});
+    });
 
-chatInput.addEventListener('keydown', (e) => {
+    chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         if (isWaitingResponse) {
@@ -702,11 +705,12 @@ chatInput.addEventListener('keydown', (e) => {
             sendPrompt();
         }
     }
-});
+    });
+}
 
 // New chat button
-const newChatButton = document.getElementById('newChatButton');
-newChatButton.addEventListener('click', () => {
+if (document.getElementById("newChatButton")) {
+    document.getElementById("newChatButton").addEventListener('click', () => {
     if (confirm('Start a new conversation? Current conversation will be preserved.')) {
         window.location.href = '/';
     }
