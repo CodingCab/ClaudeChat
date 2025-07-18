@@ -1,5 +1,5 @@
 // Get auth token from localStorage
-const authToken = localStorage.getItem('authToken');
+let authToken = localStorage.getItem('authToken');
 if (!authToken) {
     window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
 }
@@ -53,14 +53,18 @@ function escapeHtml(text) {
 
 // Helper function to handle API requests with authentication
 async function authenticatedFetch(url, options = {}) {
-    const defaultOptions = {
+    // Get current token from localStorage
+    const currentToken = localStorage.getItem('authToken');
+    
+    const mergedOptions = {
+        ...options,
         headers: {
-            'Authorization': `Bearer ${authToken}`,
+            'Authorization': `Bearer ${currentToken}`,
             ...options.headers
         }
     };
     
-    const response = await fetch(url, { ...options, ...defaultOptions });
+    const response = await fetch(url, mergedOptions);
     
     // Check if authentication failed
     if (response.status === 401) {
