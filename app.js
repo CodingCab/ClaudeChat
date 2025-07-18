@@ -728,7 +728,6 @@ logoutButton.addEventListener('click', async () => {
     try {
         await authenticatedFetch('/api/logout', { 
             method: 'POST'
-            }
         });
         localStorage.removeItem('authToken');
         window.location.href = '/login';
@@ -1227,7 +1226,7 @@ async function saveSystemPrompts() {
         const response = await authenticatedFetch('/api/system-prompts', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
                 'Authorization': `Bearer ${authToken}`
             },
             body: JSON.stringify(systemPromptsData)
@@ -1289,4 +1288,4 @@ clearPromptButton.addEventListener('click', async () => {
     updateSystemPromptsUI();
     systemPromptInput.value = '';
     alert('Active system prompt cleared!');
-});
+});}
